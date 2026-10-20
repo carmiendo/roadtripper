@@ -1,41 +1,104 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-accent="pink">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="description" content="Find gas stations at the right distance ahead and see the weather where you'll be, when you'll be there.">
   <meta name="color-scheme" content="light dark">
   <title>Roadtripper</title>
+  <script>
+    // Apply the saved color before first paint, so the page doesn't flash pink.
+    try {
+      var s = JSON.parse(localStorage.getItem('roadtripper.settings.v1') || '{}');
+      if (s.accent) document.documentElement.dataset.accent = s.accent;
+    } catch (e) {}
+  </script>
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
   <link rel="stylesheet" href="css/styles.css">
+  <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js" defer></script>
   <script type="module" src="js/app.js"></script>
 </head>
 <body>
   <header class="site-header">
-    <div class="wrap">
-      <h1 class="brand">Roadtripper</h1>
-      <p class="tagline">Gas and weather for the road ahead</p>
+    <div class="wrap header-row">
+      <div>
+        <h1 class="brand">Roadtripper</h1>
+        <p class="tagline">Gas and weather for the road ahead</p>
+      </div>
+      <button type="button" class="icon-button" id="open-settings" aria-label="Settings">
+        <svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true" focusable="false">
+          <path fill="currentColor" d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.49.49 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.48.48 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.48.48 0 0 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6a3.6 3.6 0 1 1 0-7.2 3.6 3.6 0 0 1 0 7.2z"/>
+        </svg>
+      </button>
     </div>
   </header>
 
   <main class="wrap">
-    <section class="panel" aria-labelledby="trip-heading">
-      <h2 id="trip-heading">Trip</h2>
+    <section class="panel" id="trip-panel" aria-labelledby="trip-heading">
+      <h2 id="trip-heading">Where to?</h2>
       <form id="trip-form" class="trip-form" novalidate>
         <div class="field">
-          <label for="trip-from">From</label>
-          <input id="trip-from" name="from" type="text" placeholder="Current location" autocomplete="off" disabled>
+          <label for="trip-to" class="visually-hidden">Destination</label>
+          <div class="combo">
+            <input id="trip-to" name="to" type="text" placeholder="City, address, or place"
+              autocomplete="off" enterkeyhint="go" role="combobox" aria-autocomplete="list"
+              aria-expanded="false" aria-controls="trip-to-list" required>
+            <ul id="trip-to-list" class="suggestions" role="listbox" hidden></ul>
+          </div>
         </div>
-        <div class="field">
-          <label for="trip-to">To</label>
-          <input id="trip-to" name="to" type="text" placeholder="Destination" autocomplete="off" disabled>
+
+        <div class="recent" id="recent" hidden>
+          <p class="recent-label">Recent</p>
+          <div class="recent-list" id="recent-list"></div>
         </div>
-        <div class="field">
-          <label for="trip-depart">Departure</label>
-          <input id="trip-depart" name="depart" type="datetime-local" disabled>
+
+        <div class="options">
+          <div class="option-line">
+            <span>From <strong id="from-summary">your current location</strong></span>
+            <button type="button" class="link-button" id="from-toggle" aria-expanded="false" aria-controls="from-field">Change</button>
+          </div>
+          <div class="field" id="from-field" hidden>
+            <label for="trip-from">Start</label>
+            <div class="combo">
+              <input id="trip-from" name="from" type="text" placeholder="Start address"
+                autocomplete="off" role="combobox" aria-autocomplete="list"
+                aria-expanded="false" aria-controls="trip-from-list">
+              <ul id="trip-from-list" class="suggestions" role="listbox" hidden></ul>
+            </div>
+            <button type="button" class="link-button" id="from-reset">Use my current location</button>
+          </div>
+
+          <div class="option-line">
+            <span>Leaving <strong id="depart-summary">now</strong></span>
+            <button type="button" class="link-button" id="depart-toggle" aria-expanded="false" aria-controls="depart-field">Leave later</button>
+          </div>
+          <div class="field" id="depart-field" hidden>
+            <label for="trip-depart">Departure</label>
+            <input id="trip-depart" name="depart" type="datetime-local">
+          </div>
         </div>
-        <button type="submit" disabled>Plan route</button>
+
+        <button type="submit" class="primary-button" id="plan-button">Plan route</button>
       </form>
-      <p class="status" id="status" role="status">Route planning isn't built yet.</p>
+      <p class="status" id="status" role="status" aria-live="polite"></p>
+    </section>
+
+    <section class="panel panel--route" id="route-panel" aria-labelledby="route-heading" hidden>
+      <div class="trip-bar">
+        <div class="trip-bar-text">
+          <h2 id="route-heading">To</h2>
+          <p class="trip-bar-dest" id="sum-to"></p>
+          <p class="trip-bar-from" id="sum-from"></p>
+        </div>
+        <button type="button" class="secondary-button" id="change-trip">Change</button>
+      </div>
+      <dl class="summary">
+        <div><dt>Distance</dt><dd id="sum-distance">–</dd></div>
+        <div><dt>Drive</dt><dd id="sum-duration">–</dd></div>
+        <div><dt>Arrive</dt><dd id="sum-arrive">–</dd></div>
+      </dl>
+      <div id="map" class="map" role="region" aria-label="Route map"></div>
+      <p class="fineprint" id="sum-provider"></p>
     </section>
 
     <section class="panel" aria-labelledby="gas-heading">
@@ -48,6 +111,38 @@
       <p class="placeholder">Forecasts along the route for the time you'll reach each point, plus NWS alerts.</p>
     </section>
   </main>
+
+  <dialog class="settings" id="settings" aria-labelledby="settings-heading">
+    <form method="dialog" class="settings-form" id="settings-form">
+      <div class="settings-head">
+        <h2 id="settings-heading">Settings</h2>
+        <button type="submit" class="secondary-button" value="close">Done</button>
+      </div>
+
+      <fieldset>
+        <legend>Color</legend>
+        <div class="swatches" id="accent-options"></div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Distance</legend>
+        <div class="segmented">
+          <label><input type="radio" name="distanceUnit" id="unit-mi" value="mi"><span>Miles</span></label>
+          <label><input type="radio" name="distanceUnit" id="unit-km" value="km"><span>Kilometers</span></label>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Temperature</legend>
+        <div class="segmented">
+          <label><input type="radio" name="tempUnit" id="temp-f" value="F"><span>°F</span></label>
+          <label><input type="radio" name="tempUnit" id="temp-c" value="C"><span>°C</span></label>
+        </div>
+      </fieldset>
+
+      <p class="fineprint">Settings are saved in this browser only.</p>
+    </form>
+  </dialog>
 
   <footer class="site-footer">
     <div class="wrap">
