@@ -208,6 +208,8 @@ function renderRoute({ route, from, to, departAt }, { refit = true } = {}) {
 
   $('trip-panel').hidden = true;
   $('route-panel').hidden = false;
+  $('gas-panel').hidden = false;
+  $('weather-panel').hidden = false;
   if (!refit) return;
   if (!map) map = createMap($('map'));
   map.showRoute(route);
