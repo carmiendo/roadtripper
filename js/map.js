@@ -22,7 +22,8 @@ export function createMap(container) {
   if (!window.maplibregl) {
     container.classList.add('map--unavailable');
     container.textContent = "The map couldn't load. Route details are still shown below.";
-    return { showRoute() {}, clear() {}, refreshColors() {} };
+    const noop = () => {};
+    return { showRoute: noop, clear: noop, refreshColors: noop, showStations: noop, showGaps: noop, showPosition: noop };
   }
 
   const map = new maplibregl.Map({
@@ -86,9 +87,64 @@ export function createMap(container) {
   function clear() {
     markers.forEach((m) => m.remove());
     markers = [];
+    stationMarkers.forEach((m) => m.remove());
+    stationMarkers = [];
+    if (map.getLayer('gap-line')) map.removeLayer('gap-line');
+    if (map.getSource('gaps')) map.removeSource('gaps');
     if (map.getLayer('route-line')) map.removeLayer('route-line');
     if (map.getLayer('route-casing')) map.removeLayer('route-casing');
     if (map.getSource(ROUTE_SOURCE)) map.removeSource(ROUTE_SOURCE);
+  }
+
+  let stationMarkers = [];
+  let positionMarker = null;
+
+  /** Numbered markers for stations, matching the order of the gas list. */
+  async function showStations(coords) {
+    await ready;
+    stationMarkers.forEach((m) => m.remove());
+    stationMarkers = coords.map((c, i) => {
+      const el = document.createElement('div');
+      el.className = 'map-station';
+      el.textContent = String(i + 1);
+      el.setAttribute('aria-hidden', 'true');
+      return new maplibregl.Marker({ element: el }).setLngLat(c).addTo(map);
+    });
+  }
+
+  /** Highlight stretches with no gas. */
+  async function showGaps(lines) {
+    await ready;
+    const data = {
+      type: 'FeatureCollection',
+      features: lines.map((coordinates) => ({
+        type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates },
+      })),
+    };
+    const source = map.getSource('gaps');
+    if (source) { source.setData(data); return; }
+    map.addSource('gaps', { type: 'geojson', data });
+    map.addLayer({
+      id: 'gap-line',
+      type: 'line',
+      source: 'gaps',
+      layout: { 'line-join': 'round', 'line-cap': 'butt' },
+      paint: { 'line-color': cssVar('--warn-line') || '#d97706', 'line-width': 5, 'line-dasharray': [1.2, 1] },
+    });
+  }
+
+  /** Your current position on the route, or null to hide it. */
+  async function showPosition(coord) {
+    await ready;
+    if (!coord) { positionMarker?.remove(); positionMarker = null; return; }
+    if (!positionMarker) {
+      const el = document.createElement('div');
+      el.className = 'map-you';
+      el.setAttribute('aria-hidden', 'true');
+      positionMarker = new maplibregl.Marker({ element: el }).setLngLat(coord).addTo(map);
+    } else {
+      positionMarker.setLngLat(coord);
+    }
   }
 
   async function refreshColors() {
@@ -98,5 +154,5 @@ export function createMap(container) {
     }
   }
 
-  return { showRoute, clear, refreshColors };
+  return { showRoute, clear, refreshColors, showStations, showGaps, showPosition };
 }

@@ -8,13 +8,17 @@
 //   location.js  browser geolocation
 //   settings.js  color, units, and other preferences (stored in the browser)
 //   recent.js    recent destinations (stored in the browser)
-// Coming next: stations.js (Overpass) and weather.js (Open-Meteo, NWS).
+//   stations.js  Overpass gas stations and gap detection
+//   gas.js       the "Gas ahead" panel
+// Coming next: weather.js (Open-Meteo, NWS).
 
 import { searchPlaces, reversePlace } from './geocode.js';
 import { getRoute } from './routing.js';
 import { getCurrentPosition } from './location.js';
 import { createMap } from './map.js';
-import { ACCENTS, loadSettings, saveSettings, applyAccent } from './settings.js';
+import { ACCENTS, CHOICES, loadSettings, saveSettings, applyAccent, nearestChoice } from './settings.js';
+import { createGasPanel } from './gas.js';
+import { projectToRoute, pointAlong } from './geo.js';
 import { loadRecent, addRecent } from './recent.js';
 import { formatDistance, formatDuration, formatDayClock, toLocalInputValue } from './format.js';
 
@@ -31,6 +35,10 @@ const state = {
 
 let map = null;
 let planning = false;
+let gas = null;
+let watchId = null;
+
+const ON_ROUTE_M = 1000;   // within 1 km of the route counts as being on it
 
 // ---------- Status ----------
 
@@ -183,7 +191,7 @@ function renderRecent(list = loadRecent()) {
 
 // ---------- Planning ----------
 
-function renderRoute({ route, from, to, departAt }) {
+function renderRoute({ route, from, to, departAt }, { refit = true } = {}) {
   const unit = settings.distanceUnit;
   const arrive = new Date(departAt.getTime() + route.duration * 1000);
 
@@ -197,6 +205,7 @@ function renderRoute({ route, from, to, departAt }) {
 
   $('trip-panel').hidden = true;
   $('route-panel').hidden = false;
+  if (!refit) return;
   if (!map) map = createMap($('map'));
   map.showRoute(route);
   $('route-panel').scrollIntoView({ block: 'start' });
@@ -216,6 +225,7 @@ async function plan(event) {
   button.disabled = true;
   try {
     let from = null;
+    let fromHere = false;
     if (!$('from-field').hidden && $('trip-from').value.trim()) {
       setStatus('Looking up addresses…');
       from = await resolveField('trip-from', 'from');
@@ -225,6 +235,7 @@ async function plan(event) {
       state.here = pos;
       const named = await reversePlace(pos.lat, pos.lon).catch(() => null);
       from = { label: named?.label ? `near ${named.label}` : 'your current location', ...pos };
+      fromHere = true;
     }
 
     setStatus('Looking up addresses…');
@@ -241,12 +252,53 @@ async function plan(event) {
     renderRecent(addRecent(to));
     renderRoute(state.trip);
     setStatus('');
+    gas.setProgress(null);
+    gas.setTrip(state.trip);
+    startTracking(fromHere ? from : null);
   } catch (err) {
     setStatus(err.message, 'error');
   } finally {
     planning = false;
     button.disabled = false;
   }
+}
+
+// ---------- Position along the route ----------
+
+function updateProgress(pos) {
+  if (!state.trip) return;
+  const { route } = state.trip;
+  const snap = projectToRoute(route, [pos.lon, pos.lat]);
+  const onRoute = snap.offRoute <= ON_ROUTE_M;
+  gas.setProgress(onRoute ? { along: snap.along, live: true } : null);
+  map?.showPosition(onRoute ? pointAlong(route, snap.along) : null);
+}
+
+// Follow the device's position while a route is shown, if location access is
+// already allowed. Never prompts on its own.
+async function startTracking(startPos) {
+  if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+  watchId = null;
+  if (startPos) updateProgress(startPos);
+  if (!('geolocation' in navigator)) return;
+  let granted = Boolean(startPos);
+  try {
+    const status = await navigator.permissions?.query({ name: 'geolocation' });
+    if (status) granted = status.state === 'granted';
+  } catch { /* Permissions API unavailable; fall back to whether we already have a fix. */ }
+  if (!granted) return;
+
+  let last = 0;
+  watchId = navigator.geolocation.watchPosition(
+    (p) => {
+      const now = Date.now();
+      if (now - last < 15000) return;   // update at most every 15 seconds
+      last = now;
+      updateProgress({ lat: p.coords.latitude, lon: p.coords.longitude });
+    },
+    () => {},
+    { enableHighAccuracy: false, maximumAge: 30000, timeout: 60000 },
+  );
 }
 
 function changeTrip() {
@@ -257,6 +309,7 @@ function changeTrip() {
 }
 
 // ---------- Settings ----------
+
 
 function setupSettings() {
   const dialog = $('settings');
@@ -271,23 +324,51 @@ function setupSettings() {
     swatches.append(label);
   }
 
+  // Distance choices depend on the unit, so they're rebuilt when it changes.
+  function renderDistanceChoices() {
+    const unit = settings.distanceUnit;
+    for (const [name, containerId] of [['maxOffRoute', 'off-route-options'], ['gapThreshold', 'gap-options']]) {
+      const list = CHOICES[name][unit];
+      settings[name] = nearestChoice(list, settings[name]);
+      const container = $(containerId);
+      container.replaceChildren();
+      list.forEach((value, i) => {
+        const label = document.createElement('label');
+        label.innerHTML = `<input type="radio" name="${name}" id="${name}-${i}" value="${value}"><span></span>`;
+        label.querySelector('span').textContent = formatDistance(value, unit);
+        label.querySelector('input').checked = value === settings[name];
+        container.append(label);
+      });
+    }
+  }
+
   function sync() {
     for (const name of ['accent', 'distanceUnit', 'tempUnit']) {
       const input = dialog.querySelector(`input[name="${name}"][value="${settings[name]}"]`);
       if (input) input.checked = true;
     }
+    renderDistanceChoices();
   }
 
   dialog.addEventListener('change', (e) => {
     const { name, value } = e.target;
     if (!(name in settings)) return;
-    settings[name] = value;
+    const prevUnit = settings.distanceUnit;
+    settings[name] = name === 'maxOffRoute' || name === 'gapThreshold' ? Number(value) : value;
+    if (name === 'distanceUnit') {
+      // Keep a preset window as the matching preset in the new unit; keep custom ones as-is.
+      const prevIndex = CHOICES.gasWindow[prevUnit].findIndex(([a, b]) =>
+        Math.abs(a - settings.gasWindow[0]) < 50 && Math.abs(b - settings.gasWindow[1]) < 50);
+      if (prevIndex >= 0) settings.gasWindow = CHOICES.gasWindow[value][prevIndex];
+      renderDistanceChoices();
+    }
     saveSettings(settings);
     if (name === 'accent') {
       applyAccent(value);
       map?.refreshColors();
     }
-    if (name === 'distanceUnit' && state.trip) renderRoute(state.trip);
+    if (name === 'distanceUnit' && state.trip) renderRoute(state.trip, { refit: false });
+    gas.refreshSettings();
   });
 
   $('open-settings').addEventListener('click', () => {
@@ -327,6 +408,7 @@ function init() {
   $('change-trip').addEventListener('click', changeTrip);
 
   renderRecent();
+  gas = createGasPanel({ settings, getMap: () => map });
   setupSettings();
 }
 

@@ -5,8 +5,29 @@ const METERS_PER_MILE = 1609.344;
 
 export function formatDistance(meters, unit = 'mi') {
   const value = unit === 'km' ? meters / 1000 : meters / METERS_PER_MILE;
-  const digits = value < 10 ? 1 : 0;
-  return `${value.toFixed(digits)} ${unit}`;
+  const text = value < 10 ? value.toFixed(1).replace(/\.0$/, '') : value.toFixed(0);
+  return `${text} ${unit}`;
+}
+
+/** Distance as a number in the user's unit, without the unit. */
+export function toUnit(meters, unit = 'mi') {
+  return unit === 'km' ? meters / 1000 : meters / METERS_PER_MILE;
+}
+
+export function fromUnit(value, unit = 'mi') {
+  return unit === 'km' ? value * 1000 : value * METERS_PER_MILE;
+}
+
+/** Position along the route, like "mile 212" or "km 341". */
+export function formatMarker(meters, unit = 'mi') {
+  return `${unit === 'km' ? 'km' : 'mile'} ${Math.round(toUnit(meters, unit))}`;
+}
+
+/** A distance window like "25–50 mi". */
+export function formatRange([min, max], unit = 'mi') {
+  const a = Math.round(toUnit(min, unit));
+  const b = Math.round(toUnit(max, unit));
+  return a === 0 ? `Next ${b} ${unit}` : `${a}–${b} ${unit}`;
 }
 
 export function formatDuration(seconds, { compact = false } = {}) {

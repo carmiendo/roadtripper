@@ -94,6 +94,41 @@ async function valhallaRoute(from, to) {
 
 const PROVIDERS = [osrmRoute, valhallaRoute];
 
+// Distance and time only, through several points. Used for detours.
+async function osrmLegs(points) {
+  const path = points.map((p) => `${p.lon},${p.lat}`).join(';');
+  const data = await fetchJson(`${OSRM}/route/v1/driving/${path}?overview=false&steps=false`);
+  if (data.code !== 'Ok' || !data.routes?.length) throw new Error(data.message || 'No route found');
+  return { distance: data.routes[0].distance, duration: data.routes[0].duration };
+}
+
+async function valhallaLegs(points) {
+  const body = {
+    locations: points.map((p) => ({ lat: p.lat, lon: p.lon })),
+    costing: 'auto',
+    directions_type: 'none',
+  };
+  const data = await fetchJson(`${VALHALLA}/route?json=${encodeURIComponent(JSON.stringify(body))}`);
+  if (!data.trip) throw new Error('No route found');
+  return { distance: data.trip.summary.length * 1000, duration: data.trip.summary.time };
+}
+
+/**
+ * Driving distance (m) and time (s) through the given points in order.
+ * @param {Array<{lat:number, lon:number}>} points
+ */
+export async function getTripLength(points) {
+  const errors = [];
+  for (const provider of [osrmLegs, valhallaLegs]) {
+    try {
+      return await provider(points);
+    } catch (err) {
+      errors.push(err.name === 'AbortError' ? 'timed out' : err.message);
+    }
+  }
+  throw new Error(`Couldn't measure detour (${errors.join('; ')}).`);
+}
+
 /**
  * Get a driving route between two points, trying each provider in order.
  * @param {{lat:number, lon:number}} from
