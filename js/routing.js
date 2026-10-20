@@ -145,3 +145,63 @@ export async function getRoute(from, to) {
   }
   throw new Error(`Couldn't get a route (${errors.join('; ')}). Check the addresses and try again.`);
 }
+
+// ---------- Detours in one request ----------
+// For each station S with route points A (before) and B (after), we need
+// drive(A→S) + drive(S→B). A distance matrix gives all of them at once.
+
+async function osrmDetours(items) {
+  const n = items.length;
+  const pts = [...items.map((x) => x.a), ...items.map((x) => x.s), ...items.map((x) => x.b)];
+  const path = pts.map((p) => `${p.lon},${p.lat}`).join(';');
+  const range = (from, count) => Array.from({ length: count }, (_, i) => from + i).join(';');
+  // Sources: A's then S's. Destinations: S's then B's.
+  const sources = `${range(0, n)};${range(n, n)}`;
+  const destinations = `${range(n, n)};${range(2 * n, n)}`;
+  const data = await fetchJson(
+    `${OSRM}/table/v1/driving/${path}?sources=${sources}&destinations=${destinations}&annotations=duration,distance`,
+  );
+  if (data.code !== 'Ok') throw new Error(data.message || 'No route found');
+  return items.map((_, i) => {
+    const aS = [data.distances[i][i], data.durations[i][i]];
+    const sB = [data.distances[n + i][n + i], data.durations[n + i][n + i]];
+    if (aS.includes(null) || sB.includes(null)) return null;
+    return { distance: aS[0] + sB[0], duration: aS[1] + sB[1] };
+  });
+}
+
+async function valhallaDetours(items) {
+  const loc = (p) => ({ lat: p.lat, lon: p.lon });
+  const body = {
+    sources: [...items.map((x) => loc(x.a)), ...items.map((x) => loc(x.s))],
+    targets: [...items.map((x) => loc(x.s)), ...items.map((x) => loc(x.b))],
+    costing: 'auto',
+  };
+  const data = await fetchJson(`${VALHALLA}/sources_to_targets?json=${encodeURIComponent(JSON.stringify(body))}`);
+  const m = data.sources_to_targets;
+  const n = items.length;
+  return items.map((_, i) => {
+    const aS = m[i][i];
+    const sB = m[n + i][n + i];
+    if (aS?.distance == null || sB?.distance == null) return null;
+    return { distance: (aS.distance + sB.distance) * 1000, duration: aS.time + sB.time };
+  });
+}
+
+/**
+ * Driving distance (m) and time (s) of A→S→B for each item, in one request.
+ * @param {Array<{a:{lat,lon}, s:{lat,lon}, b:{lat,lon}}>} items
+ * @returns {Promise<Array<{distance:number, duration:number}|null>>}
+ */
+export async function getDetourLengths(items) {
+  if (!items.length) return [];
+  const errors = [];
+  for (const provider of [osrmDetours, valhallaDetours]) {
+    try {
+      return await provider(items);
+    } catch (err) {
+      errors.push(err.name === 'AbortError' ? 'timed out' : err.message);
+    }
+  }
+  throw new Error(`Couldn't measure detours (${errors.join('; ')}).`);
+}

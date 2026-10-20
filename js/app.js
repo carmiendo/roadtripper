@@ -229,23 +229,37 @@ async function plan(event) {
   try {
     let from = null;
     let fromHere = false;
+    let fromNamed = null;   // resolves to a display name for "current location"
+    const toPromise = resolveField('trip-to', 'to');
+    toPromise.catch(() => {});   // handled when awaited below
     if (!$('from-field').hidden && $('trip-from').value.trim()) {
       setStatus('Looking up addresses…');
       from = await resolveField('trip-from', 'from');
     } else {
       setStatus('Finding your location…');
-      const pos = await getCurrentPosition();
+      const pos = await currentPosition();
       state.here = pos;
-      const named = await reversePlace(pos.lat, pos.lon).catch(() => null);
-      from = { label: named?.label ? `near ${named.label}` : 'your current location', ...pos };
+      from = { label: 'your current location', ...pos };
       fromHere = true;
+      fromNamed = reversePlace(pos.lat, pos.lon).catch(() => null);
     }
 
     setStatus('Looking up addresses…');
-    const to = await resolveField('trip-to', 'to');
+    const to = await toPromise;
 
     setStatus('Planning route…');
     const route = await getRoute(from, to);
+    if (fromNamed) {
+      // Use the name if it's already back; don't hold up the route for it.
+      const named = await Promise.race([fromNamed, new Promise((r) => setTimeout(r, 300))]);
+      if (named?.label) from.label = `near ${named.label}`;
+      else fromNamed.then((n) => {
+        if (n?.label && state.trip?.from === from) {
+          from.label = `near ${n.label}`;
+          $('sum-from').textContent = `From ${from.label}`;
+        }
+      });
+    }
 
     const departValue = $('trip-depart').value;
     const departAt = !$('depart-field').hidden && departValue ? new Date(departValue) : new Date();
@@ -266,6 +280,29 @@ async function plan(event) {
     planning = false;
     button.disabled = false;
   }
+}
+
+// ---------- Current position ----------
+
+let warmPosition = null;   // {pos, at} from a lookup started when the page opened
+
+async function currentPosition() {
+  if (warmPosition && Date.now() - warmPosition.at < 2 * 60 * 1000) return warmPosition.pos;
+  const pos = await getCurrentPosition();
+  warmPosition = { pos, at: Date.now() };
+  return pos;
+}
+
+// If location access is already allowed, look up the position while the
+// person is still typing, so planning doesn't wait on it. Never prompts.
+async function warmUpPosition() {
+  try {
+    const status = await navigator.permissions?.query({ name: 'geolocation' });
+    if (status?.state !== 'granted') return;
+    const pos = await getCurrentPosition();
+    warmPosition = { pos, at: Date.now() };
+    state.here = pos;   // also improves address suggestions nearby
+  } catch { /* ignore */ }
 }
 
 // ---------- Position along the route ----------
@@ -410,6 +447,7 @@ function init() {
   $('trip-form').addEventListener('submit', plan);
   $('change-trip').addEventListener('click', changeTrip);
 
+  warmUpPosition();
   renderRecent();
   gas = createGasPanel({ settings, getMap: () => map });
   weather = createWeatherPanel({ settings });

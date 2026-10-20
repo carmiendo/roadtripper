@@ -10,21 +10,24 @@
 //   along     meters from route start to where the station meets the route
 //   offRoute  straight-line meters from the route
 
-import { projectToRoute, resampleRoute } from './geo.js';
+import { createRouteIndex } from './geo.js';
 
 const ENDPOINTS = [
   'https://overpass-api.de/api/interpreter',
   'https://overpass.kumi.systems/api/interpreter',
 ];
-const SAMPLE_SPACING_M = 3000;   // route points every 3 km for the corridor query
-const POINTS_PER_QUERY = 150;    // about 450 km of route per request
-const TIMEOUT_MS = 30000;
+const BOX_SPAN_M = 25000;        // route split into ~25 km pieces, one bounding box each
+const TIMEOUT_MS = 12000;        // try the mirror if the main server is slow
+const CACHE_KEY = 'roadtripper.stations.v1';
+const CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+const CACHE_ROUTES = 5;
 
 async function overpass(query) {
   const errors = [];
-  for (const url of ENDPOINTS) {
+  for (const [i, url] of ENDPOINTS.entries()) {
     const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+    // Move on quickly from a busy server; give the last one longer.
+    const timer = setTimeout(() => ctrl.abort(), i === ENDPOINTS.length - 1 ? 2 * TIMEOUT_MS : TIMEOUT_MS);
     try {
       const res = await fetch(url, {
         method: 'POST',
@@ -42,9 +45,32 @@ async function overpass(query) {
   throw new Error(`Couldn't load gas stations (${errors.join('; ')}). Try again in a minute.`);
 }
 
-function corridorQuery(points, radius) {
-  const line = points.map(([lon, lat]) => `${lat.toFixed(5)},${lon.toFixed(5)}`).join(',');
-  return `[out:json][timeout:25];nwr["amenity"="fuel"](around:${Math.round(radius)},${line});out center tags;`;
+// Bounding boxes along the route, each padded by `radius`. Overpass answers
+// bbox queries from its spatial index, which is much faster than "around".
+function corridorQuery(route, radius) {
+  const boxes = [];
+  // One pass over the route coordinates, cutting a new box every BOX_SPAN_M.
+  let box = null;
+  let boxStart = 0;
+  const { coords, cumDist } = route;
+  for (let i = 0; i < coords.length; i++) {
+    const [lon, lat] = coords[i];
+    if (!box) box = { s: lat, n: lat, w: lon, e: lon };
+    box.s = Math.min(box.s, lat); box.n = Math.max(box.n, lat);
+    box.w = Math.min(box.w, lon); box.e = Math.max(box.e, lon);
+    if (cumDist[i] - boxStart >= BOX_SPAN_M || i === coords.length - 1) {
+      boxes.push(box);
+      box = { s: lat, n: lat, w: lon, e: lon };
+      boxStart = cumDist[i];
+    }
+  }
+  const parts = boxes.map((b) => {
+    const dLat = radius / 111320;
+    const dLon = radius / (111320 * Math.cos((((b.s + b.n) / 2) * Math.PI) / 180));
+    const bbox = [b.s - dLat, b.w - dLon, b.n + dLat, b.e + dLon].map((v) => v.toFixed(4)).join(',');
+    return `nwr["amenity"="fuel"](${bbox});`;
+  });
+  return `[out:json][timeout:25];(${parts.join('')});out center tags;`;
 }
 
 function toStation(el) {
@@ -68,35 +94,60 @@ function toStation(el) {
 /**
  * Gas stations within `radius` meters of the route, sorted by distance along it.
  * @param {object} route
+ * Results are cached in this browser for a day, per route.
  * @param {number} radius meters
- * @param {(done:number, total:number) => void} [onProgress]
  */
-export async function fetchStations(route, radius, onProgress) {
-  const points = resampleRoute(route, SAMPLE_SPACING_M);
-  const chunks = [];
-  for (let i = 0; i < points.length; i += POINTS_PER_QUERY - 1) {
-    chunks.push(points.slice(i, i + POINTS_PER_QUERY));
-    if (i + POINTS_PER_QUERY >= points.length) break;
-  }
-
-  const byId = new Map();
-  for (let i = 0; i < chunks.length; i++) {
-    onProgress?.(i, chunks.length);
-    const data = await overpass(corridorQuery(chunks[i], radius));
+export async function fetchStations(route, radius) {
+  const key = cacheKey(route, radius);
+  let raw = readCache(key);
+  if (!raw) {
+    const data = await overpass(corridorQuery(route, radius));
+    const byId = new Map();
     for (const el of data.elements || []) {
       const station = toStation(el);
       if (station && !byId.has(station.id)) byId.set(station.id, station);
     }
+    raw = [...byId.values()];
+    writeCache(key, raw);
   }
-  onProgress?.(chunks.length, chunks.length);
 
+  const index = createRouteIndex(route, radius);
   const stations = [];
-  for (const s of byId.values()) {
-    const { along, offRoute } = projectToRoute(route, [s.lon, s.lat]);
-    if (offRoute <= radius) stations.push({ ...s, along, offRoute });
+  for (const s of raw) {
+    const snap = index.project([s.lon, s.lat]);
+    if (snap && snap.offRoute <= radius) stations.push({ ...s, along: snap.along, offRoute: snap.offRoute });
   }
   stations.sort((a, b) => a.along - b.along);
   return stations;
+}
+
+// ---------- Cache (this browser only) ----------
+
+function cacheKey(route, radius) {
+  const [a, b] = [route.coords[0], route.coords[route.coords.length - 1]];
+  return [a[0], a[1], b[0], b[1]].map((v) => v.toFixed(3)).join(',') +
+    `|${Math.round(route.distance / 1000)}|${Math.round(radius)}`;
+}
+
+function readCache(key) {
+  try {
+    const all = JSON.parse(localStorage.getItem(CACHE_KEY) || '{}');
+    const hit = all[key];
+    return hit && Date.now() - hit.at < CACHE_MAX_AGE_MS ? hit.stations : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeCache(key, stations) {
+  try {
+    const all = JSON.parse(localStorage.getItem(CACHE_KEY) || '{}');
+    all[key] = { at: Date.now(), stations };
+    const keep = Object.entries(all).sort((x, y) => y[1].at - x[1].at).slice(0, CACHE_ROUTES);
+    localStorage.setItem(CACHE_KEY, JSON.stringify(Object.fromEntries(keep)));
+  } catch {
+    // Storage full or unavailable; skip caching.
+  }
 }
 
 /**

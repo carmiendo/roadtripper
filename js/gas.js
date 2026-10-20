@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Carmen Jackson. Licensed under the GNU GPL v3.0 (see LICENSE).
 
 import { fetchStations, findGaps } from './stations.js';
-import { getTripLength } from './routing.js';
+import { getDetourLengths } from './routing.js';
 import { pointAlong, timeAlong, sliceAlong } from './geo.js';
 import { MAX_STATION_RADIUS, saveSettings } from './settings.js';
 import {
@@ -74,37 +74,47 @@ export function createGasPanel({ settings, getMap }) {
     if (state.detours.has(station.id)) return;
     state.detours.set(station.id, 'pending');
     detourQueue.push({ station, generation: state.generation });
-    runDetours();
+    // Let the current render queue all its stations, then send one request.
+    queueMicrotask(runDetours);
   }
 
+  // Measures every queued station in one request. If more are queued while a
+  // request is out (for example, you changed the target), they go in the next
+  // one, at most one request a second as OSRM's public server asks.
   async function runDetours() {
     if (detourRunning) return;
     detourRunning = true;
     while (detourQueue.length) {
-      const { station, generation } = detourQueue.shift();
-      if (generation !== state.generation) continue;
+      const generation = state.generation;
+      const batch = detourQueue.filter((q) => q.generation === generation).map((q) => q.station);
+      detourQueue = [];
+      if (!batch.length) continue;
+
       const { route } = state.trip;
       const total = route.cumDist[route.cumDist.length - 1];
-      const a = Math.max(0, station.along - DETOUR_SPAN_M);
-      const b = Math.min(total, station.along + DETOUR_SPAN_M);
-      const [aLon, aLat] = pointAlong(route, a);
-      const [bLon, bLat] = pointAlong(route, b);
+      const spans = batch.map((st) => {
+        const a = Math.max(0, st.along - DETOUR_SPAN_M);
+        const b = Math.min(total, st.along + DETOUR_SPAN_M);
+        const [aLon, aLat] = pointAlong(route, a);
+        const [bLon, bLat] = pointAlong(route, b);
+        return { st, a, b, item: { a: { lat: aLat, lon: aLon }, s: { lat: st.lat, lon: st.lon }, b: { lat: bLat, lon: bLon } } };
+      });
+
       try {
-        const via = await getTripLength([
-          { lat: aLat, lon: aLon },
-          { lat: station.lat, lon: station.lon },
-          { lat: bLat, lon: bLon },
-        ]);
+        const results = await getDetourLengths(spans.map((x) => x.item));
         if (generation !== state.generation) continue;
-        state.detours.set(station.id, {
-          distance: Math.max(0, via.distance - (b - a)),
-          duration: Math.max(0, via.duration - (timeAlong(route, b) - timeAlong(route, a))),
+        spans.forEach(({ st, a, b }, i) => {
+          const via = results[i];
+          state.detours.set(st.id, via ? {
+            distance: Math.max(0, via.distance - (b - a)),
+            duration: Math.max(0, via.duration - (timeAlong(route, b) - timeAlong(route, a))),
+          } : 'error');
         });
       } catch {
-        if (generation === state.generation) state.detours.set(station.id, 'error');
+        if (generation === state.generation) spans.forEach(({ st }) => state.detours.set(st.id, 'error'));
       }
       render();
-      await new Promise((r) => setTimeout(r, DETOUR_SPACING_MS));
+      if (detourQueue.length) await new Promise((r) => setTimeout(r, DETOUR_SPACING_MS));
     }
     detourRunning = false;
   }

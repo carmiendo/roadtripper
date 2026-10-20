@@ -64,7 +64,7 @@ export function samplePoints(route, from = 0) {
 }
 
 /** Hourly forecasts for several points in one request. */
-async function fetchForecasts(points) {
+export async function fetchForecasts(points) {
   const params = new URLSearchParams({
     latitude: points.map((p) => p.lat.toFixed(3)).join(','),
     longitude: points.map((p) => p.lon.toFixed(3)).join(','),
@@ -95,6 +95,18 @@ export function hourAtIndex(hourly, i) {
   return out;
 }
 
+// Run `fn` over `items`, `limit` at a time.
+async function eachLimited(items, limit, fn) {
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const i = next++;
+      await fn(items[i], i);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+}
+
 // ---------- Names ----------
 
 async function nameFor(point) {
@@ -106,18 +118,12 @@ async function nameFor(point) {
   }
 }
 
-async function namePoints(points) {
-  // A few at a time, to be gentle with the free geocoder.
-  const names = new Array(points.length).fill(null);
-  let next = 0;
-  async function worker() {
-    while (next < points.length) {
-      const i = next++;
-      names[i] = await nameFor(points[i]);
-    }
-  }
-  await Promise.all([worker(), worker(), worker()]);
-  return names;
+/** Town names for points, reported one at a time as they arrive. */
+export async function namePoints(points, onName) {
+  await eachLimited(points, 4, async (p, i) => {
+    const name = await nameFor(p);
+    if (name) onName(i, name);
+  });
 }
 
 // ---------- NWS alerts ----------
@@ -130,7 +136,7 @@ async function namePoints(points) {
 export async function fetchAlerts(points) {
   const byId = new Map();
   let covered = false;
-  for (const p of points) {
+  await eachLimited(points, 4, async (p) => {
     try {
       const data = await fetchJson(
         `${NWS}/alerts/active?point=${p.lat.toFixed(4)},${p.lon.toFixed(4)}`,
@@ -157,20 +163,11 @@ export async function fetchAlerts(points) {
     } catch {
       // Outside the US (400/404) or a temporary failure for this point.
     }
-  }
+  });
   const order = { Extreme: 0, Severe: 1, Moderate: 2, Minor: 3, Unknown: 4 };
   const alerts = [...byId.values()].sort((a, b) =>
-    (order[a.severity] ?? 4) - (order[b.severity] ?? 4) || a.alongs[0] - b.alongs[0]);
+    (order[a.severity] ?? 4) - (order[b.severity] ?? 4) || Math.min(...a.alongs) - Math.min(...b.alongs));
   return { alerts, covered };
-}
-
-/**
- * Forecasts and names for points along the route.
- * @returns {Promise<Array<{along, lat, lon, name, hourly}>>}
- */
-export async function fetchRouteWeather(points) {
-  const [hourlies, names] = await Promise.all([fetchForecasts(points), namePoints(points)]);
-  return points.map((p, i) => ({ ...p, name: names[i], hourly: hourlies[i] }));
 }
 
 // ---------- Conditions ----------

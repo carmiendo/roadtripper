@@ -47,6 +47,68 @@ export function projectToRoute(route, [lon, lat], fromIndex = 0) {
   return best;
 }
 
+/**
+ * Grid index of route segments, so snapping many points (stations) only checks
+ * nearby segments instead of the whole route.
+ * @param {number} radius meters; points farther than this from the route return null
+ */
+export function createRouteIndex(route, radius) {
+  const cell = Math.max(radius, 2000) / M_PER_DEG_LAT;   // cell size in degrees
+  const grid = new Map();
+  const keyOf = (x, y) => `${x},${y}`;
+  const { coords } = route;
+  for (let i = 0; i < coords.length - 1; i++) {
+    const [x1, y1] = coords[i];
+    const [x2, y2] = coords[i + 1];
+    const minX = Math.floor(Math.min(x1, x2) / cell), maxX = Math.floor(Math.max(x1, x2) / cell);
+    const minY = Math.floor(Math.min(y1, y2) / cell), maxY = Math.floor(Math.max(y1, y2) / cell);
+    for (let x = minX; x <= maxX; x++) {
+      for (let y = minY; y <= maxY; y++) {
+        const k = keyOf(x, y);
+        if (!grid.has(k)) grid.set(k, []);
+        grid.get(k).push(i);
+      }
+    }
+  }
+
+  return {
+    project([lon, lat]) {
+      // Longitude cells shrink toward the poles, so search a wider band in x.
+      const cx = Math.floor(lon / cell), cy = Math.floor(lat / cell);
+      const spanX = Math.ceil(1 / Math.max(0.2, Math.cos(toRad(lat))));
+      const candidates = new Set();
+      for (let x = cx - spanX; x <= cx + spanX; x++) {
+        for (let y = cy - 1; y <= cy + 1; y++) {
+          for (const i of grid.get(keyOf(x, y)) || []) candidates.add(i);
+        }
+      }
+      if (!candidates.size) return null;
+      let best = null;
+      for (const i of candidates) {
+        const r = projectToSegment(route, [lon, lat], i);
+        if (!best || r.offRoute < best.offRoute) best = r;
+      }
+      return best;
+    },
+  };
+}
+
+function projectToSegment(route, [lon, lat], i) {
+  const kx = M_PER_DEG_LAT * Math.cos(toRad(lat));
+  const ky = M_PER_DEG_LAT;
+  const { coords, cumDist } = route;
+  const ax = (coords[i][0] - lon) * kx, ay = (coords[i][1] - lat) * ky;
+  const bx = (coords[i + 1][0] - lon) * kx, by = (coords[i + 1][1] - lat) * ky;
+  const dx = bx - ax, dy = by - ay;
+  const len2 = dx * dx + dy * dy;
+  const t = len2 > 0 ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / len2)) : 0;
+  return {
+    along: cumDist[i] + t * (cumDist[i + 1] - cumDist[i]),
+    offRoute: Math.hypot(ax + t * dx, ay + t * dy),
+    index: i,
+  };
+}
+
 function segmentAt(cum, value) {
   // Last index i with cum[i] <= value (binary search).
   let lo = 0, hi = cum.length - 1;

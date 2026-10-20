@@ -1,7 +1,9 @@
 // "Weather ahead" panel: conditions at each point when you'll get there, plus NWS alerts.
 // Copyright (C) 2026 Carmen Jackson. Licensed under the GNU GPL v3.0 (see LICENSE).
 
-import { samplePoints, fetchRouteWeather, fetchAlerts, hourAt, hourAtIndex, describe, hazards } from './weather.js';
+import {
+  samplePoints, fetchForecasts, namePoints, fetchAlerts, hourAt, hourAtIndex, describe, hazards,
+} from './weather.js';
 import { timeAlong } from './geo.js';
 import { formatDistance, formatDayClock, formatClock } from './format.js';
 
@@ -309,23 +311,43 @@ export function createWeatherPanel({ settings }) {
 
   // ---------- Public ----------
 
+  // Forecast rows render as soon as the forecast arrives; town names and NWS
+  // alerts fill in afterward, in parallel.
   async function load(generation) {
+    const points = samplePoints(state.trip.route);
+    const keepNames = state.points ? new Map(state.points.map((p) => [p.along.toFixed(0), p.name])) : new Map();
+
+    const alertsDone = fetchAlerts(points)
+      .catch(() => ({ alerts: [], covered: false }))
+      .then((alerts) => {
+        if (generation !== state.generation) return;
+        state.alerts = alerts;
+        render();
+      });
+
     try {
-      const points = samplePoints(state.trip.route);
-      const [withWeather, alerts] = await Promise.all([
-        fetchRouteWeather(points),
-        fetchAlerts(points).catch(() => ({ alerts: [], covered: false })),
-      ]);
+      const hourlies = await fetchForecasts(points);
       if (generation !== state.generation) return;
-      state.points = withWeather;
-      state.alerts = alerts;
+      state.points = points.map((p, i) => ({ ...p, name: keepNames.get(p.along.toFixed(0)) ?? null, hourly: hourlies[i] }));
       state.fetchedAt = Date.now();
       state.error = null;
+      render();
     } catch {
       if (generation !== state.generation) return;
       if (!state.points) state.error = "Couldn't load forecasts. Check your connection and try again.";
+      render();
+      return;
     }
-    render();
+
+    let pending = null;
+    const unnamed = state.points.filter((p) => !p.name);
+    await namePoints(unnamed, (i, name) => {
+      if (generation !== state.generation) return;
+      unnamed[i].name = name;
+      // Batch re-renders while names stream in.
+      if (!pending) pending = setTimeout(() => { pending = null; render(); }, 150);
+    });
+    await alertsDone;
   }
 
   function setTrip(trip) {
