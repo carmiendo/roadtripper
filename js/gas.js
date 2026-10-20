@@ -1,31 +1,27 @@
-// "Gas ahead" panel: stations in a distance window, detours, gap warnings, brand filter.
+// "Gas ahead" panel: stations around a target distance, detours, gap warnings.
 // Copyright (C) 2026 Carmen Jackson. Licensed under the GNU GPL v3.0 (see LICENSE).
 
 import { fetchStations, findGaps } from './stations.js';
 import { getTripLength } from './routing.js';
 import { pointAlong, timeAlong, sliceAlong } from './geo.js';
-import { CHOICES, MAX_STATION_RADIUS, saveSettings } from './settings.js';
+import { MAX_STATION_RADIUS, saveSettings } from './settings.js';
 import {
-  formatDistance, formatDuration, formatDayClock, formatMarker, formatRange,
+  formatDistance, formatDuration, formatDayClock, formatMarker,
   toUnit, fromUnit,
 } from './format.js';
 
 const DETOUR_SPAN_M = 3000;     // measure detours from 3 km before to 3 km after the station
 const DETOUR_SPACING_MS = 1100; // OSRM's public server asks for at most 1 request a second
-const MAX_LISTED = 10;
+const PER_SIDE = 5;   // stations shown on each side of the target
 
 const $ = (id) => document.getElementById(id);
 
 export function createGasPanel({ settings, getMap }) {
   const el = {
-    windows: $('gas-windows'),
-    custom: $('gas-custom'),
-    customMin: $('gas-min'),
-    customMax: $('gas-max'),
-    customUnit: document.querySelectorAll('.gas-unit'),
+    target: $('gas-target'),
+    targetUnit: $('gas-target-unit'),
     context: $('gas-context'),
     gaps: $('gas-gaps'),
-    brands: $('gas-brands'),
     list: $('gas-list'),
     empty: $('gas-empty'),
   };
@@ -35,7 +31,7 @@ export function createGasPanel({ settings, getMap }) {
     stations: null,       // all stations within MAX_STATION_RADIUS, or null while loading
     error: null,
     progress: null,       // {along, live:boolean} position on the route
-    brand: null,          // selected brand filter, or null for all
+    shownKey: '',         // ids of listed stations, to refit the map only when they change
     detours: new Map(),   // station id -> {distance, duration} | 'pending' | 'error'
     generation: 0,        // bumps on each new trip, to drop stale results
   };
@@ -43,85 +39,34 @@ export function createGasPanel({ settings, getMap }) {
   let detourQueue = [];
   let detourRunning = false;
 
-  // ---------- Window choices ----------
+  // ---------- Target distance ----------
 
-  function renderWindowChoices() {
+  function renderTarget() {
     const unit = settings.distanceUnit;
-    const presets = CHOICES.gasWindow[unit];
-    const [curMin, curMax] = settings.gasWindow;
-    const isPreset = presets.some(([a, b]) => Math.abs(a - curMin) < 50 && Math.abs(b - curMax) < 50);
+    if (document.activeElement !== el.target) {
+      el.target.value = Math.round(toUnit(settings.gasTarget, unit));
+    }
+    el.targetUnit.textContent = `${unit} ahead`;
+  }
 
-    el.windows.replaceChildren();
-    const add = (label, value, checked) => {
-      const wrap = document.createElement('label');
-      wrap.className = 'chip';
-      wrap.innerHTML = `<input type="radio" name="gas-window" value="${value}"><span></span>`;
-      wrap.querySelector('span').textContent = label;
-      wrap.querySelector('input').checked = checked;
-      el.windows.append(wrap);
+  let targetTimer = null;
+  function applyTarget({ immediate = false } = {}) {
+    clearTimeout(targetTimer);
+    const run = () => {
+      const value = Number(el.target.value);
+      if (!Number.isFinite(value) || value <= 0) return;   // keep the last good value while typing
+      settings.gasTarget = fromUnit(value, settings.distanceUnit);
+      saveSettings(settings);
+      render();
     };
-    presets.forEach((range, i) => {
-      const checked = isPreset && Math.abs(range[0] - curMin) < 50 && Math.abs(range[1] - curMax) < 50;
-      add(formatRange(range, unit), String(i), checked);
-    });
-    add('Custom', 'custom', !isPreset);
-
-    el.custom.hidden = isPreset;
-    el.customMin.value = Math.round(toUnit(curMin, unit));
-    el.customMax.value = Math.round(toUnit(curMax, unit));
-    el.customUnit.forEach((n) => { n.textContent = unit; });
+    if (immediate) run(); else targetTimer = setTimeout(run, 600);
   }
-
-  el.windows.addEventListener('change', (e) => {
-    const unit = settings.distanceUnit;
-    if (e.target.value === 'custom') {
-      el.custom.hidden = false;
-      el.customMin.focus();
-      return;
-    }
-    settings.gasWindow = CHOICES.gasWindow[unit][Number(e.target.value)];
-    saveSettings(settings);
-    el.custom.hidden = true;
-    render();
+  el.target.addEventListener('input', () => applyTarget());
+  el.target.addEventListener('change', () => applyTarget({ immediate: true }));
+  el.target.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); applyTarget({ immediate: true }); el.target.blur(); }
   });
-
-  function applyCustom() {
-    const unit = settings.distanceUnit;
-    let min = Number(el.customMin.value);
-    let max = Number(el.customMax.value);
-    if (!Number.isFinite(min) || min < 0) min = 0;
-    if (!Number.isFinite(max) || max <= min) max = min + 10;
-    settings.gasWindow = [fromUnit(min, unit), fromUnit(max, unit)];
-    saveSettings(settings);
-    render();
-  }
-  el.customMin.addEventListener('change', applyCustom);
-  el.customMax.addEventListener('change', applyCustom);
-
-  // ---------- Brand filter ----------
-
-  function renderBrands(stations) {
-    const counts = new Map();
-    for (const s of stations) if (s.brand) counts.set(s.brand, (counts.get(s.brand) || 0) + 1);
-    const brands = [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8).map(([b]) => b);
-    if (state.brand && !brands.includes(state.brand)) brands.push(state.brand);
-
-    el.brands.replaceChildren();
-    if (brands.length < 2) { el.brands.hidden = true; return; }
-    el.brands.hidden = false;
-    for (const brand of [null, ...brands]) {
-      const button = document.createElement('button');
-      button.type = 'button';
-      button.className = 'chip-button';
-      button.textContent = brand ?? 'All brands';
-      button.setAttribute('aria-pressed', String(state.brand === brand));
-      button.addEventListener('click', () => {
-        state.brand = brand;
-        render();
-      });
-      el.brands.append(button);
-    }
-  }
+  el.target.addEventListener('focus', () => el.target.select());
 
   // ---------- Detours ----------
 
@@ -178,17 +123,19 @@ export function createGasPanel({ settings, getMap }) {
   function detourText(station) {
     const unit = settings.distanceUnit;
     const off = `${formatDistance(station.offRoute, unit)} off route`;
+    // Short form: "0.3 mi off route · +2 min detour".
     const d = state.detours.get(station.id);
-    if (!d || d === 'pending') return `${off} · measuring detour…`;
-    if (d === 'error') return `${off} · detour unavailable`;
-    if (d.duration < 60) return `${off} · right on the way`;
-    return `${off} · +${formatDuration(d.duration)} detour (+${formatDistance(d.distance, unit)})`;
+    if (!d || d === 'pending') return `${off} · detour…`;
+    if (d === 'error') return off;
+    if (d.duration < 60) return `${off} · on the way`;
+    return `${off} · +${formatDuration(d.duration)} detour`;
   }
 
-  function stationItem(station, index, ahead, gapAfter) {
+  function stationItem(station, index, ahead, gapAfter, target) {
     const unit = settings.distanceUnit;
     const li = document.createElement('li');
     li.className = 'station';
+    li.dataset.index = String(index);
 
     const num = document.createElement('span');
     num.className = 'station-num';
@@ -208,7 +155,7 @@ export function createGasPanel({ settings, getMap }) {
     const sub = document.createElement('p');
     sub.className = 'station-sub';
     const where = [station.subname, station.place].filter(Boolean).join(', ');
-    sub.textContent = [where, `arrive ${formatDayClock(arrivalAt(station.along), state.trip.departAt)}`]
+    sub.textContent = [where, `ETA ${formatDayClock(arrivalAt(station.along), state.trip.departAt)}`]
       .filter(Boolean).join(' · ');
     const det = document.createElement('p');
     det.className = 'station-detour';
@@ -223,17 +170,40 @@ export function createGasPanel({ settings, getMap }) {
 
     const dist = document.createElement('div');
     dist.className = 'station-dist';
-    dist.innerHTML = '<strong></strong><span>ahead</span>';
+    dist.innerHTML = '<strong></strong><span></span>';
     dist.querySelector('strong').textContent = formatDistance(ahead, unit);
+    const diff = ahead - target;
+    dist.querySelector('span').textContent = Math.abs(diff) < 0.5 * 1609.344
+      ? 'at target'
+      : `${formatDistance(Math.abs(diff), unit)} ${diff < 0 ? 'before' : 'past'}`;
 
     const nav = document.createElement('a');
     nav.className = 'station-nav';
     nav.href = `https://www.google.com/maps/dir/?api=1&destination=${station.lat},${station.lon}`;
     nav.target = '_blank';
     nav.rel = 'noopener';
-    nav.textContent = 'Directions';
+    nav.innerHTML = '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" focusable="false">' +
+      '<path fill="currentColor" d="M12 2 4.5 20.3l.7.7L12 18l6.8 3 .7-.7z"/></svg>';
+    nav.setAttribute('aria-label', `Directions to ${station.name}`);
+    nav.title = 'Directions';
+    dist.append(nav);
 
-    li.append(num, main, dist, nav);
+    li.append(num, main, dist);
+    return li;
+  }
+
+  function targetDivider(target, from) {
+    const unit = settings.distanceUnit;
+    const li = document.createElement('li');
+    li.className = 'target-divider';
+    li.setAttribute('aria-label', `Your target, ${formatDistance(target, unit)} ahead`);
+    const label = document.createElement('span');
+    const point = from + target;
+    const total = state.trip.route.cumDist[state.trip.route.cumDist.length - 1];
+    label.textContent = point > total
+      ? `${formatDistance(target, unit)} is past your destination`
+      : `${formatDistance(target, unit)} ahead · ETA ${formatDayClock(arrivalAt(point), state.trip.departAt)}`;
+    li.append(label);
     return li;
   }
 
@@ -271,7 +241,6 @@ export function createGasPanel({ settings, getMap }) {
     if (!state.trip) {
       el.context.textContent = '';
       el.gaps.replaceChildren();
-      el.brands.hidden = true;
       el.list.replaceChildren();
       el.empty.textContent = 'Plan a route to see stations along it.';
       el.empty.hidden = false;
@@ -294,7 +263,6 @@ export function createGasPanel({ settings, getMap }) {
     const { route } = state.trip;
     const from = state.progress?.along ?? 0;
     const near = state.stations.filter((s) => s.offRoute <= settings.maxOffRoute);
-    const [wMin, wMax] = settings.gasWindow;
 
     // Context line
     const fromText = state.progress?.live
@@ -303,37 +271,61 @@ export function createGasPanel({ settings, getMap }) {
     el.context.textContent =
       `Measured ${fromText}, within ${formatDistance(settings.maxOffRoute, unit)} of the route.`;
 
-    // Gaps (always on all brands: any fuel counts)
+    // Gaps
     const gaps = findGaps(near, route, settings.gapThreshold, from).slice(0, 3);
     el.gaps.replaceChildren(...gaps.map((g) => gapItem(g, from)));
     const gapAfterStation = new Map(gaps.filter((g) => g.lastStation).map((g) => [g.lastStation.id, g]));
 
     // Stations in the window
     const ahead = near.filter((s) => s.along >= from);
-    renderBrands(ahead);
-    const filtered = state.brand ? ahead.filter((s) => s.brand === state.brand) : ahead;
-    const inWindow = filtered
-      .filter((s) => s.along - from >= wMin && s.along - from <= wMax)
-      .slice(0, MAX_LISTED);
+    const filtered = ahead;
+    const target = settings.gasTarget;
+    const before = filtered.filter((s) => s.along - from <= target).slice(-PER_SIDE);
+    const after = filtered.filter((s) => s.along - from > target).slice(0, PER_SIDE);
+    const shown = [...before, ...after];
 
-    el.list.replaceChildren(...inWindow.map((s, i) =>
-      stationItem(s, i, s.along - from, gapAfterStation.get(s.id))));
-    inWindow.forEach(queueDetour);
+    const items = [];
+    const sideNote = (text) => {
+      const li = document.createElement('li');
+      li.className = 'side-note';
+      li.textContent = text;
+      return li;
+    };
+    if (!before.length && after.length) {
+      items.push(sideNote(`No stations between here and ${formatDistance(target, unit)}.`));
+    }
+    before.forEach((s, i) => items.push(stationItem(s, i, s.along - from, gapAfterStation.get(s.id), target)));
+    if (state.trip && (before.length || after.length)) items.push(targetDivider(target, from));
+    after.forEach((s, i) =>
+      items.push(stationItem(s, before.length + i, s.along - from, gapAfterStation.get(s.id), target)));
+    if (before.length && !after.length) {
+      items.push(sideNote(`No stations past ${formatDistance(target, unit)} on this route.`));
+    }
+    el.list.replaceChildren(...items);
+    shown.forEach(queueDetour);
 
-    if (inWindow.length) {
+    if (shown.length) {
       el.empty.hidden = true;
     } else {
-      const before = [...filtered].reverse().find((s) => s.along - from < wMin);
-      const after = filtered.find((s) => s.along - from > wMax);
-      const hints = [];
-      if (before) hints.push(`${before.name} at ${formatDistance(before.along - from, unit)}`);
-      if (after) hints.push(`${after.name} at ${formatDistance(after.along - from, unit)}`);
-      el.empty.textContent = `No stations ${formatRange(settings.gasWindow, unit).replace('Next', 'in the next')} ahead.` +
-        (hints.length ? ` Closest: ${hints.join(' and ')}.` : '');
+      el.empty.textContent = 'No gas stations ahead on this route.';
       el.empty.hidden = false;
     }
 
-    map?.showStations(inWindow.map((s) => [s.lon, s.lat]));
+    const key = shown.map((s) => s.id).join(',');
+    const total = route.cumDist[route.cumDist.length - 1];
+    const targetPoint = from + target <= total ? pointAlong(route, from + target) : null;
+    map?.showStations(shown.map((s) => [s.lon, s.lat]), {
+      target: targetPoint,
+      fit: key !== state.shownKey,
+      onSelect: (i) => {
+        const card = el.list.querySelector(`[data-index="${i}"]`);
+        card?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        card?.classList.remove('flash');
+        void card?.offsetWidth;
+        card?.classList.add('flash');
+      },
+    });
+    state.shownKey = key;
     map?.showGaps(gaps.map((g) => sliceAlong(route, Math.max(g.start, from), g.end)));
   }
 
@@ -345,7 +337,7 @@ export function createGasPanel({ settings, getMap }) {
     state.trip = trip;
     state.stations = null;
     state.error = null;
-    state.brand = null;
+    state.shownKey = '';
     state.detours = new Map();
     detourQueue = [];
     render();
@@ -367,11 +359,11 @@ export function createGasPanel({ settings, getMap }) {
 
   // Settings changed elsewhere (units, off-route distance, gap threshold).
   function refreshSettings() {
-    renderWindowChoices();
+    renderTarget();
     render();
   }
 
-  renderWindowChoices();
+  renderTarget();
   render();
 
   return { setTrip, setProgress, refreshSettings };

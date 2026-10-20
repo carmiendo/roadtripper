@@ -103,20 +103,15 @@
 
     <section class="panel" id="gas-panel" aria-labelledby="gas-heading">
       <h2 id="gas-heading">Gas ahead</h2>
-      <fieldset class="gas-window">
-        <legend class="visually-hidden">Distance ahead</legend>
-        <div class="chips" id="gas-windows"></div>
-        <div class="gas-custom" id="gas-custom" hidden>
-          <label for="gas-min">From</label>
-          <input id="gas-min" type="number" inputmode="numeric" min="0" step="5">
-          <label for="gas-max">to</label>
-          <input id="gas-max" type="number" inputmode="numeric" min="5" step="5">
-          <span class="gas-unit">mi</span> <span>ahead</span>
+      <div class="gas-target">
+        <label for="gas-target">Find gas about</label>
+        <div class="gas-target-input">
+          <input id="gas-target" type="number" inputmode="numeric" min="1" step="1" value="50" enterkeyhint="done">
+          <span id="gas-target-unit">mi ahead</span>
         </div>
-      </fieldset>
+      </div>
       <p class="gas-context" id="gas-context"></p>
       <ul class="gaps" id="gas-gaps" aria-label="Stretches with no gas"></ul>
-      <div class="chips chips--brands" id="gas-brands" aria-label="Filter by brand" hidden></div>
       <ol class="stations" id="gas-list" aria-label="Gas stations"></ol>
       <p class="placeholder" id="gas-empty"></p>
     </section>

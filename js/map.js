@@ -81,6 +81,7 @@ export function createMap(container) {
       (b, c) => b.extend(c),
       new maplibregl.LngLatBounds(start, start),
     );
+    routeBounds = bounds;
     map.fitBounds(bounds, { padding: 40, duration: 0 });
   }
 
@@ -99,18 +100,55 @@ export function createMap(container) {
   let stationMarkers = [];
   let positionMarker = null;
 
-  /** Numbered markers for stations, matching the order of the gas list. */
-  async function showStations(coords) {
+  let targetMarker = null;
+  let routeBounds = null;
+
+  /**
+   * Numbered markers for stations, matching the order of the gas list.
+   * @param {Array<[number, number]>} coords
+   * @param {{target?: [number, number]|null, fit?: boolean, onSelect?: (index:number) => void}} options
+   */
+  async function showStations(coords, { target = null, fit = false, onSelect } = {}) {
     await ready;
     stationMarkers.forEach((m) => m.remove());
     stationMarkers = coords.map((c, i) => {
-      const el = document.createElement('div');
+      const el = document.createElement('button');
+      el.type = 'button';
       el.className = 'map-station';
       el.textContent = String(i + 1);
-      el.setAttribute('aria-hidden', 'true');
+      el.setAttribute('aria-label', `Station ${i + 1}`);
+      el.addEventListener('click', (e) => { e.stopPropagation(); onSelect?.(i); });
       return new maplibregl.Marker({ element: el }).setLngLat(c).addTo(map);
     });
+
+    targetMarker?.remove();
+    targetMarker = null;
+    if (target) {
+      const el = document.createElement('div');
+      el.className = 'map-target';
+      el.setAttribute('aria-hidden', 'true');
+      targetMarker = new maplibregl.Marker({ element: el }).setLngLat(target).addTo(map);
+    }
+
+    if (fit && coords.length) {
+      const points = target ? [...coords, target] : coords;
+      const bounds = points.reduce((b, c) => b.extend(c), new maplibregl.LngLatBounds(points[0], points[0]));
+      map.fitBounds(bounds, { padding: 50, maxZoom: 13, duration: 0 });
+      wholeRouteButton.hidden = false;
+    }
   }
+
+  // "Whole route" control, shown when the map is zoomed to stations.
+  const wholeRouteButton = document.createElement('button');
+  wholeRouteButton.type = 'button';
+  wholeRouteButton.className = 'map-whole-route';
+  wholeRouteButton.textContent = 'Whole route';
+  wholeRouteButton.hidden = true;
+  wholeRouteButton.addEventListener('click', () => {
+    if (routeBounds) map.fitBounds(routeBounds, { padding: 40, duration: 0 });
+    wholeRouteButton.hidden = true;
+  });
+  container.append(wholeRouteButton);
 
   /** Highlight stretches with no gas. */
   async function showGaps(lines) {

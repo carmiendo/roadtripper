@@ -353,13 +353,8 @@ function setupSettings() {
   dialog.addEventListener('change', (e) => {
     const { name, value } = e.target;
     if (!(name in settings)) return;
-    const prevUnit = settings.distanceUnit;
     settings[name] = name === 'maxOffRoute' || name === 'gapThreshold' ? Number(value) : value;
     if (name === 'distanceUnit') {
-      // Keep a preset window as the matching preset in the new unit; keep custom ones as-is.
-      const prevIndex = CHOICES.gasWindow[prevUnit].findIndex(([a, b]) =>
-        Math.abs(a - settings.gasWindow[0]) < 50 && Math.abs(b - settings.gasWindow[1]) < 50);
-      if (prevIndex >= 0) settings.gasWindow = CHOICES.gasWindow[value][prevIndex];
       renderDistanceChoices();
     }
     saveSettings(settings);

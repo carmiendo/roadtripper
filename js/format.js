@@ -23,13 +23,6 @@ export function formatMarker(meters, unit = 'mi') {
   return `${unit === 'km' ? 'km' : 'mile'} ${Math.round(toUnit(meters, unit))}`;
 }
 
-/** A distance window like "25–50 mi". */
-export function formatRange([min, max], unit = 'mi') {
-  const a = Math.round(toUnit(min, unit));
-  const b = Math.round(toUnit(max, unit));
-  return a === 0 ? `Next ${b} ${unit}` : `${a}–${b} ${unit}`;
-}
-
 export function formatDuration(seconds, { compact = false } = {}) {
   const totalMin = Math.round(seconds / 60);
   const h = Math.floor(totalMin / 60);

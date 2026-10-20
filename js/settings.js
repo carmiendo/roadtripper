@@ -18,17 +18,13 @@ export const DEFAULTS = Object.freeze({
   accent: 'pink',
   distanceUnit: 'mi',            // 'mi' | 'km'
   tempUnit: 'F',                 // 'F' | 'C'
-  gasWindow: [25 * MI, 50 * MI], // meters ahead: [min, max]
+  gasTarget: 50 * MI,            // meters ahead to look for gas around
   maxOffRoute: 2 * MI,           // meters; stations farther from the route are ignored
   gapThreshold: 50 * MI,         // meters; warn about longer stretches with no station
 });
 
 // Choices offered in the UI, in the user's unit. Stored values are meters.
 export const CHOICES = Object.freeze({
-  gasWindow: {
-    mi: [[0, 25], [25, 50], [50, 100], [100, 150], [150, 250]].map(([a, b]) => [a * MI, b * MI]),
-    km: [[0, 40], [40, 80], [80, 160], [160, 240], [240, 400]].map(([a, b]) => [a * KM, b * KM]),
-  },
   maxOffRoute: {
     mi: [0.5, 1, 2, 5].map((v) => v * MI),
     km: [1, 2, 3, 8].map((v) => v * KM),
@@ -50,7 +46,9 @@ export const MAX_STATION_RADIUS = 5 * MI;
 export function loadSettings() {
   try {
     const raw = localStorage.getItem(KEY);
-    return { ...DEFAULTS, ...(raw ? JSON.parse(raw) : {}) };
+    const saved = raw ? JSON.parse(raw) : {};
+    delete saved.gasWindow;   // replaced by gasTarget
+    return { ...DEFAULTS, ...saved };
   } catch {
     return { ...DEFAULTS };
   }
