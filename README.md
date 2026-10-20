@@ -2,7 +2,7 @@
 
 A web app for two road-trip tasks:
 
-- **Gas ahead.** Find stations within a distance window ahead on your route, see how far off the route each one is and how long the detour takes, and get warned about the last station before a long stretch with none.
+- **Gas ahead.** Type how far ahead you want to stop (say, 50 miles) and see the closest stations before and after that point, how far off the route each one is, and how long the detour takes. Get warned about the last station before a long stretch with none.
 - **Weather ahead.** See the forecast at points along the route for the time you'll actually reach them, plus National Weather Service alerts.
 
 Live at [roadtripper.quest](https://roadtripper.quest).
@@ -11,17 +11,16 @@ Live at [roadtripper.quest](https://roadtripper.quest).
 
 Routing, gas stations ahead, and weather along the route are working. Next: phone layout refinements and offline support.
 
-## Planned features
+## Features
 
-1. Gas stations in a distance window ahead (for example, 40–80 miles), sorted by distance along the route
-2. Distance off route and actual detour (extra miles and minutes) for each station
-3. Last station before a gap longer than a set threshold
-4. Brand filter
-5. Weather at your arrival time along the route, with NWS alerts
-6. Weather for towns along the route
-7. Settings: units (miles/km, °F/°C), tank range, gap threshold, maximum detour, preferred brands
-8. Phone layout for use on the road, laptop layout for planning
-9. Offline caching of the last route and forecasts
+1. Gas stations around a target distance ahead: the 5 closest before and after it
+2. Distance off route and detour time for each station, with directions
+3. Warnings for long stretches with no gas, highlighted on the map
+4. Weather at your arrival time at points along the route, with NWS alerts
+5. Settings: color, units (miles/km, °F/°C), max distance off route, gap warning length
+6. Recent destinations and a results-first layout for use on the road
+
+Planned: offline caching of the last route and forecasts, and traffic-aware drive times.
 
 ## Data sources
 
