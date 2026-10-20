@@ -15,7 +15,12 @@
 
 import { haversine, decodePolyline } from './geo.js';
 
-const OSRM = 'https://router.project-osrm.org';
+// Two public OSRM servers with the same API: the project's demo server and the
+// OpenStreetMap community's (FOSSGIS) server that openstreetmap.org uses.
+const OSRM_SERVERS = [
+  { name: 'OSRM', base: 'https://router.project-osrm.org' },
+  { name: 'OSRM', base: 'https://routing.openstreetmap.de/routed-car' },
+];
 const VALHALLA = 'https://valhalla1.openstreetmap.de';
 const TIMEOUT_MS = 15000;
 
@@ -31,10 +36,10 @@ async function fetchJson(url, options = {}) {
   }
 }
 
-async function osrmRoute(from, to) {
+async function osrmRoute(base, from, to) {
   const path = `${from.lon},${from.lat};${to.lon},${to.lat}`;
   const params = 'overview=full&geometries=geojson&annotations=distance,duration&steps=false';
-  const data = await fetchJson(`${OSRM}/route/v1/driving/${path}?${params}`);
+  const data = await fetchJson(`${base}/route/v1/driving/${path}?${params}`);
   if (data.code !== 'Ok' || !data.routes?.length) {
     throw new Error(data.message || 'No route found');
   }
@@ -92,12 +97,44 @@ async function valhallaRoute(from, to) {
   };
 }
 
-const PROVIDERS = [osrmRoute, valhallaRoute];
+// Each chain tries every OSRM server, then Valhalla.
+const chain = (osrmFn, valhallaFn) => [
+  ...OSRM_SERVERS.map((srv) => (...args) => osrmFn(srv.base, ...args)),
+  valhallaFn,
+];
+
+// "Failed to fetch" (a TypeError) means no usable response at all: offline,
+// blocked, or a rate-limit reply the browser can't read. Worth one retry.
+const isNetworkError = (err) => err instanceof TypeError;
+
+async function tryProviders(providers, args, what) {
+  const errors = [];
+  for (const [i, provider] of providers.entries()) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        return await provider(...args);
+      } catch (err) {
+        if (attempt === 0 && i === 0 && isNetworkError(err)) {
+          await new Promise((r) => setTimeout(r, 1200));
+          continue;
+        }
+        errors.push(err);
+        break;
+      }
+    }
+  }
+  if (errors.every(isNetworkError)) {
+    throw new Error(`Couldn't reach the routing servers to ${what}. Check your connection, ` +
+      'or turn off ad or content blockers for this site, and try again.');
+  }
+  const detail = errors.map((e) => (e.name === 'AbortError' ? 'timed out' : e.message)).join('; ');
+  throw new Error(`Couldn't ${what} (${detail}).`);
+}
 
 // Distance and time only, through several points. Used for detours.
-async function osrmLegs(points) {
+async function osrmLegs(base, points) {
   const path = points.map((p) => `${p.lon},${p.lat}`).join(';');
-  const data = await fetchJson(`${OSRM}/route/v1/driving/${path}?overview=false&steps=false`);
+  const data = await fetchJson(`${base}/route/v1/driving/${path}?overview=false&steps=false`);
   if (data.code !== 'Ok' || !data.routes?.length) throw new Error(data.message || 'No route found');
   return { distance: data.routes[0].distance, duration: data.routes[0].duration };
 }
@@ -118,15 +155,7 @@ async function valhallaLegs(points) {
  * @param {Array<{lat:number, lon:number}>} points
  */
 export async function getTripLength(points) {
-  const errors = [];
-  for (const provider of [osrmLegs, valhallaLegs]) {
-    try {
-      return await provider(points);
-    } catch (err) {
-      errors.push(err.name === 'AbortError' ? 'timed out' : err.message);
-    }
-  }
-  throw new Error(`Couldn't measure detour (${errors.join('; ')}).`);
+  return tryProviders(chain(osrmLegs, valhallaLegs), [points], 'measure the detour');
 }
 
 /**
@@ -135,22 +164,14 @@ export async function getTripLength(points) {
  * @param {{lat:number, lon:number}} to
  */
 export async function getRoute(from, to) {
-  const errors = [];
-  for (const provider of PROVIDERS) {
-    try {
-      return await provider(from, to);
-    } catch (err) {
-      errors.push(err.name === 'AbortError' ? 'timed out' : err.message);
-    }
-  }
-  throw new Error(`Couldn't get a route (${errors.join('; ')}). Check the addresses and try again.`);
+  return tryProviders(chain(osrmRoute, valhallaRoute), [from, to], 'get a route');
 }
 
 // ---------- Detours in one request ----------
 // For each station S with route points A (before) and B (after), we need
 // drive(A→S) + drive(S→B). A distance matrix gives all of them at once.
 
-async function osrmDetours(items) {
+async function osrmDetours(base, items) {
   const n = items.length;
   const pts = [...items.map((x) => x.a), ...items.map((x) => x.s), ...items.map((x) => x.b)];
   const path = pts.map((p) => `${p.lon},${p.lat}`).join(';');
@@ -159,7 +180,7 @@ async function osrmDetours(items) {
   const sources = `${range(0, n)};${range(n, n)}`;
   const destinations = `${range(n, n)};${range(2 * n, n)}`;
   const data = await fetchJson(
-    `${OSRM}/table/v1/driving/${path}?sources=${sources}&destinations=${destinations}&annotations=duration,distance`,
+    `${base}/table/v1/driving/${path}?sources=${sources}&destinations=${destinations}&annotations=duration,distance`,
   );
   if (data.code !== 'Ok') throw new Error(data.message || 'No route found');
   return items.map((_, i) => {
@@ -195,13 +216,5 @@ async function valhallaDetours(items) {
  */
 export async function getDetourLengths(items) {
   if (!items.length) return [];
-  const errors = [];
-  for (const provider of [osrmDetours, valhallaDetours]) {
-    try {
-      return await provider(items);
-    } catch (err) {
-      errors.push(err.name === 'AbortError' ? 'timed out' : err.message);
-    }
-  }
-  throw new Error(`Couldn't measure detours (${errors.join('; ')}).`);
+  return tryProviders(chain(osrmDetours, valhallaDetours), [items], 'measure detours');
 }
