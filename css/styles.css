@@ -456,6 +456,16 @@ input[type="text"]:focus { border-color: var(--accent-ink); outline: none; }
 .target-divider span { flex: none; max-width: 80%; text-align: center; }
 .side-note { padding: 0.25rem 0.1rem; font-size: 0.95rem; color: var(--muted); }
 
+.gas-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  margin-top: 0.75rem;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+.gas-retry { min-height: 44px; padding: 0 1.1rem; }
 .gas-context { margin: 0 0 0.75rem; font-size: 0.85rem; color: var(--muted); }
 .gas-context:empty { display: none; }
 

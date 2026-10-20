@@ -1,7 +1,7 @@
 // "Gas ahead" panel: stations around a target distance, detours, gap warnings.
 // Copyright (C) 2026 Carmen Jackson. Licensed under the GNU GPL v3.0 (see LICENSE).
 
-import { fetchStations, findGaps } from './stations.js';
+import { createStationLoader, findGaps } from './stations.js';
 import { getDetourLengths } from './routing.js';
 import { pointAlong, timeAlong, sliceAlong } from './geo.js';
 import { MAX_STATION_RADIUS, saveSettings } from './settings.js';
@@ -13,6 +13,7 @@ import {
 const DETOUR_SPAN_M = 3000;     // measure detours from 3 km before to 3 km after the station
 const DETOUR_SPACING_MS = 1100; // OSRM's public server asks for at most 1 request a second
 const PER_SIDE = 5;   // stations shown on each side of the target
+const SEARCH_SPAN_M = 50 * 1609.344;   // look this far before and after the target
 
 const $ = (id) => document.getElementById(id);
 
@@ -24,18 +25,20 @@ export function createGasPanel({ settings, getMap }) {
     gaps: $('gas-gaps'),
     list: $('gas-list'),
     empty: $('gas-empty'),
+    status: $('gas-status'),
   };
 
   const state = {
     trip: null,           // {route, from, to, departAt}
-    stations: null,       // all stations within MAX_STATION_RADIUS, or null while loading
-    error: null,
+    stations: null,       // stations in the search range, or null before the first answer
+    load: null,           // {range, complete, loading, failed, stale} from the loader
     progress: null,       // {along, live:boolean} position on the route
     shownKey: '',         // ids of listed stations, to refit the map only when they change
     detours: new Map(),   // station id -> {distance, duration} | 'pending' | 'error'
     generation: 0,        // bumps on each new trip, to drop stale results
   };
 
+  let loader = null;
   let detourQueue = [];
   let detourRunning = false;
 
@@ -57,6 +60,7 @@ export function createGasPanel({ settings, getMap }) {
       if (!Number.isFinite(value) || value <= 0) return;   // keep the last good value while typing
       settings.gasTarget = fromUnit(value, settings.distanceUnit);
       saveSettings(settings);
+      updateRange();
       render();
     };
     if (immediate) run(); else targetTimer = setTimeout(run, 600);
@@ -174,7 +178,7 @@ export function createGasPanel({ settings, getMap }) {
     if (gapAfter) {
       const warn = document.createElement('p');
       warn.className = 'station-warn';
-      warn.textContent = `Last gas for ${formatDistance(gapAfter.length, unit)}`;
+      warn.textContent = `Last gas for ${gapAfter.open ? 'at least ' : ''}${formatDistance(gapAfter.length, unit)}`;
       main.append(warn);
     }
 
@@ -224,12 +228,14 @@ export function createGasPanel({ settings, getMap }) {
     const title = document.createElement('p');
     title.className = 'gap-title';
     const inGap = gap.start <= from;
+    const atLeast = gap.open ? 'at least ' : '';
     title.textContent = inGap
-      ? `No gas for the next ${formatDistance(gap.end - from, unit)}`
-      : `No gas for ${formatDistance(gap.length, unit)}`;
+      ? `No gas for the next ${atLeast}${formatDistance(gap.end - from, unit)}`
+      : `No gas for ${atLeast}${formatDistance(gap.length, unit)}`;
     const detail = document.createElement('p');
     detail.className = 'gap-detail';
-    const endText = gap.toEnd ? 'your destination' : formatMarker(gap.end, unit);
+    const endText = gap.toEnd ? 'your destination'
+      : gap.open ? `past ${formatMarker(gap.end, unit)}` : formatMarker(gap.end, unit);
     if (inGap) {
       detail.textContent = gap.toEnd
         ? 'No stations between here and your destination.'
@@ -245,6 +251,45 @@ export function createGasPanel({ settings, getMap }) {
     return li;
   }
 
+  function renderStatus() {
+    const load = state.load;
+    el.status.replaceChildren();
+    if (!state.trip || !load) { el.status.hidden = true; return; }
+    let text = '';
+    let retry = false;
+    if (load.failed && !load.loading) {
+      retry = true;
+      if (state.stations?.length) text = "Part of this stretch couldn't be loaded. The station servers are busy.";
+    } else if (load.loading && state.stations?.length) {
+      text = 'Loading more stations…';
+    } else if (load.stale) {
+      text = "Showing saved stations from an earlier visit. The station servers didn't answer.";
+    }
+    if (!text && !retry) { el.status.hidden = true; return; }
+    if (text) {
+      const p = document.createElement('span');
+      p.textContent = text;
+      el.status.append(p);
+    }
+    if (retry) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'secondary-button gas-retry';
+      b.textContent = 'Retry';
+      b.addEventListener('click', () => loader?.retry());
+      el.status.append(b);
+    }
+    el.status.hidden = false;
+  }
+
+  // Ask the loader for just the stretch around the target.
+  function updateRange() {
+    if (!loader || !state.trip) return;
+    const from = state.progress?.along ?? 0;
+    const target = settings.gasTarget;
+    loader.setRange(from + Math.max(0, target - SEARCH_SPAN_M), from + target + SEARCH_SPAN_M);
+  }
+
   function render() {
     const map = getMap();
 
@@ -256,16 +301,15 @@ export function createGasPanel({ settings, getMap }) {
       el.empty.hidden = false;
       return;
     }
-    if (state.error) {
-      el.empty.textContent = state.error;
-      el.empty.hidden = false;
+    renderStatus();
+    if (!state.stations || (!state.stations.length && !state.load?.complete)) {
+      el.context.textContent = '';
+      el.gaps.replaceChildren();
       el.list.replaceChildren();
-      return;
-    }
-    if (!state.stations) {
-      el.empty.textContent = 'Finding gas stations along your route…';
+      el.empty.textContent = state.load?.failed && !state.load.loading
+        ? "Couldn't load gas stations. The station servers are busy right now."
+        : 'Finding gas stations…';
       el.empty.hidden = false;
-      el.list.replaceChildren();
       return;
     }
 
@@ -278,16 +322,20 @@ export function createGasPanel({ settings, getMap }) {
     const fromText = state.progress?.live
       ? `from your location (${formatMarker(from, unit)})`
       : 'from the start of the route';
+    const [rStart, rEnd] = state.load.range;
     el.context.textContent =
-      `Measured ${fromText}, within ${formatDistance(settings.maxOffRoute, unit)} of the route.`;
+      `Measured ${fromText}. Showing stations within ${formatDistance(settings.maxOffRoute, unit)} of the route, ` +
+      `${formatMarker(rStart, unit)} to ${formatMarker(rEnd, unit)}.`;
 
-    // Gaps
-    const gaps = findGaps(near, route, settings.gapThreshold, from).slice(0, 3);
+    // Gaps, only within the searched range and only once it's fully loaded
+    const gaps = state.load.complete
+      ? findGaps(near, route, settings.gapThreshold, rStart, rEnd, { leading: rStart <= from + 1 }).slice(0, 3)
+      : [];
     el.gaps.replaceChildren(...gaps.map((g) => gapItem(g, from)));
     const gapAfterStation = new Map(gaps.filter((g) => g.lastStation).map((g) => [g.lastStation.id, g]));
 
     // Stations in the window
-    const ahead = near.filter((s) => s.along >= from);
+    const ahead = near.filter((s) => s.along >= Math.max(from, rStart) && s.along <= rEnd);
     const filtered = ahead;
     const target = settings.gasTarget;
     const before = filtered.filter((s) => s.along - from <= target).slice(-PER_SIDE);
@@ -301,15 +349,21 @@ export function createGasPanel({ settings, getMap }) {
       li.textContent = text;
       return li;
     };
-    if (!before.length && after.length) {
-      items.push(sideNote(`No stations between here and ${formatDistance(target, unit)}.`));
+    const reach = (d) => formatDistance(Math.min(d, SEARCH_SPAN_M), unit);
+    if (!before.length && after.length && state.load.complete) {
+      items.push(sideNote(rStart <= from + 1
+        ? `No stations between here and ${formatDistance(target, unit)}.`
+        : `No stations within ${reach(target)} before your target.`));
     }
     before.forEach((s, i) => items.push(stationItem(s, i, s.along - from, gapAfterStation.get(s.id), target)));
     if (state.trip && (before.length || after.length)) items.push(targetDivider(target, from));
     after.forEach((s, i) =>
       items.push(stationItem(s, before.length + i, s.along - from, gapAfterStation.get(s.id), target)));
-    if (before.length && !after.length) {
-      items.push(sideNote(`No stations past ${formatDistance(target, unit)} on this route.`));
+    if (before.length && !after.length && state.load.complete) {
+      const routeEnd = route.cumDist[route.cumDist.length - 1];
+      items.push(sideNote(rEnd >= routeEnd - 1
+        ? `No stations past ${formatDistance(target, unit)} on this route.`
+        : `No stations within ${reach(SEARCH_SPAN_M)} past your target.`));
     }
     el.list.replaceChildren(...items);
     shown.forEach(queueDetour);
@@ -317,7 +371,7 @@ export function createGasPanel({ settings, getMap }) {
     if (shown.length) {
       el.empty.hidden = true;
     } else {
-      el.empty.textContent = 'No gas stations ahead on this route.';
+      el.empty.textContent = `No gas stations from ${formatMarker(rStart, unit)} to ${formatMarker(rEnd, unit)}.`;
       el.empty.hidden = false;
     }
 
@@ -326,7 +380,7 @@ export function createGasPanel({ settings, getMap }) {
     const targetPoint = from + target <= total ? pointAlong(route, from + target) : null;
     map?.showStations(shown.map((s) => [s.lon, s.lat]), {
       target: targetPoint,
-      fit: key !== state.shownKey,
+      fit: key !== state.shownKey && state.load.complete,
       onSelect: (i) => {
         const card = el.list.querySelector(`[data-index="${i}"]`);
         card?.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -335,41 +389,43 @@ export function createGasPanel({ settings, getMap }) {
         card?.classList.add('flash');
       },
     });
-    state.shownKey = key;
+    if (state.load.complete) state.shownKey = key;
     map?.showGaps(gaps.map((g) => sliceAlong(route, Math.max(g.start, from), g.end)));
   }
 
   // ---------- Public ----------
 
-  async function setTrip(trip) {
+  function setTrip(trip) {
     state.generation += 1;
     const generation = state.generation;
     state.trip = trip;
     state.stations = null;
-    state.error = null;
+    state.load = null;
     state.shownKey = '';
     state.detours = new Map();
     detourQueue = [];
-    render();
-    try {
-      const stations = await fetchStations(trip.route, MAX_STATION_RADIUS);
+    loader?.cancel();
+    loader = createStationLoader(trip.route, MAX_STATION_RADIUS, (update) => {
       if (generation !== state.generation) return;
-      state.stations = stations;
-    } catch (err) {
-      if (generation !== state.generation) return;
-      state.error = err.message;
-    }
+      state.stations = update.stations;
+      state.load = update;
+      render();
+    });
     render();
+    updateRange();
   }
 
   function setProgress(progress) {
     state.progress = progress;
-    if (state.trip) render();
+    if (!state.trip) return;
+    updateRange();
+    render();
   }
 
   // Settings changed elsewhere (units, off-route distance, gap threshold).
   function refreshSettings() {
     renderTarget();
+    updateRange();
     render();
   }
 

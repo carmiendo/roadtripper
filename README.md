@@ -30,7 +30,7 @@ All free and used without API keys:
 |---|---|
 | Routing | [OSRM](https://project-osrm.org/), with [Valhalla](https://valhalla.github.io/valhalla/) as fallback |
 | Address search | [Photon](https://photon.komoot.io/) |
-| Gas stations | [Overpass API](https://overpass-api.de/) (OpenStreetMap) |
+| Gas stations | [Overpass API](https://wiki.openstreetmap.org/wiki/Overpass_API) (OpenStreetMap), several public servers |
 | Weather | [Open-Meteo](https://open-meteo.com/) |
 | Weather alerts | [National Weather Service API](https://www.weather.gov/documentation/services-web-api) |
 | Map | [MapLibre GL JS](https://maplibre.org/) with [OpenFreeMap](https://openfreemap.org/) tiles |

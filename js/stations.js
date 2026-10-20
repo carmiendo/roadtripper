@@ -12,64 +12,98 @@
 
 import { createRouteIndex } from './geo.js';
 
+// Public Overpass servers (see wiki.openstreetmap.org/wiki/Overpass_API#Public_Overpass_API_instances).
 const ENDPOINTS = [
   'https://overpass-api.de/api/interpreter',
+  'https://overpass.private.coffee/api/interpreter',
   'https://overpass.kumi.systems/api/interpreter',
+  'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
 ];
-const BOX_SPAN_M = 25000;        // route split into ~25 km pieces, one bounding box each
-const TIMEOUT_MS = 12000;        // try the mirror if the main server is slow
-const CACHE_KEY = 'roadtripper.stations.v1';
+const SEGMENT_M = 25000;           // route cut into 25 km segments, one bounding box each
+const SEGMENTS_PER_REQUEST = 4;    // up to ~100 km of route per request
+const PARALLEL_REQUESTS = 2;
+const HEDGE_AFTER_MS = 5000;       // start another server if no answer by then
+const REQUEST_TIMEOUT_MS = 25000;
+const CACHE_KEY = 'roadtripper.stations.v3';
 const CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+const CACHE_STALE_OK_MS = 14 * 24 * 60 * 60 * 1000;   // use old data if every server fails
 const CACHE_ROUTES = 5;
 
-async function overpass(query) {
-  const errors = [];
-  for (const [i, url] of ENDPOINTS.entries()) {
-    const ctrl = new AbortController();
-    // Move on quickly from a busy server; give the last one longer.
-    const timer = setTimeout(() => ctrl.abort(), i === ENDPOINTS.length - 1 ? 2 * TIMEOUT_MS : TIMEOUT_MS);
-    try {
-      const res = await fetch(url, {
-        method: 'POST',
-        body: new URLSearchParams({ data: query }),
-        signal: ctrl.signal,
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return await res.json();
-    } catch (err) {
-      errors.push(err.name === 'AbortError' ? 'timed out' : err.message);
-    } finally {
-      clearTimeout(timer);
-    }
-  }
-  throw new Error(`Couldn't load gas stations (${errors.join('; ')}). Try again in a minute.`);
+let preferred = 0;   // server that answered last; tried first next time
+
+async function postOverpass(url, query, signal) {
+  const res = await fetch(url, { method: 'POST', body: new URLSearchParams({ data: query }), signal });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const data = await res.json();
+  // Overpass reports its own timeouts inside a 200 response.
+  if (data.remark && /runtime error|timed out|out of memory/i.test(data.remark)) throw new Error('server busy');
+  return data;
 }
 
-// Bounding boxes along the route, each padded by `radius`. Overpass answers
-// bbox queries from its spatial index, which is much faster than "around".
-function corridorQuery(route, radius) {
-  const boxes = [];
-  // One pass over the route coordinates, cutting a new box every BOX_SPAN_M.
-  let box = null;
-  let boxStart = 0;
-  const { coords, cumDist } = route;
-  for (let i = 0; i < coords.length; i++) {
-    const [lon, lat] = coords[i];
-    if (!box) box = { s: lat, n: lat, w: lon, e: lon };
-    box.s = Math.min(box.s, lat); box.n = Math.max(box.n, lat);
-    box.w = Math.min(box.w, lon); box.e = Math.max(box.e, lon);
-    if (cumDist[i] - boxStart >= BOX_SPAN_M || i === coords.length - 1) {
-      boxes.push(box);
-      box = { s: lat, n: lat, w: lon, e: lon };
-      boxStart = cumDist[i];
-    }
-  }
-  const parts = boxes.map((b) => {
-    const dLat = radius / 111320;
-    const dLon = radius / (111320 * Math.cos((((b.s + b.n) / 2) * Math.PI) / 180));
-    const bbox = [b.s - dLat, b.w - dLon, b.n + dLat, b.e + dLon].map((v) => v.toFixed(4)).join(',');
-    return `nwr["amenity"="fuel"](${bbox});`;
+/**
+ * Send a query to several servers, staggered: start the next server when one
+ * fails or hasn't answered within HEDGE_AFTER_MS. First good answer wins.
+ */
+function overpass(query) {
+  const order = [...ENDPOINTS.keys()].map((k) => (k + preferred) % ENDPOINTS.length);
+  return new Promise((resolve, reject) => {
+    const controllers = [];
+    const errors = [];
+    let started = 0;
+    let finished = 0;
+    let done = false;
+    let hedgeTimer = null;
+
+    const startNext = () => {
+      clearTimeout(hedgeTimer);
+      if (done || started >= order.length) return;
+      const idx = order[started++];
+      const ctrl = new AbortController();
+      controllers.push(ctrl);
+      const timer = setTimeout(() => ctrl.abort(), REQUEST_TIMEOUT_MS);
+      postOverpass(ENDPOINTS[idx], query, ctrl.signal)
+        .then((data) => {
+          if (done) return;
+          done = true;
+          preferred = idx;
+          controllers.forEach((c) => c !== ctrl && c.abort());
+          resolve(data);
+        })
+        .catch((err) => {
+          if (done) return;
+          errors.push(err.name === 'AbortError' ? 'timed out' : err.message);
+          finished++;
+          if (started < order.length) startNext();
+          else if (finished === started) { done = true; reject(new Error(errors.join('; '))); }
+        })
+        .finally(() => clearTimeout(timer));
+      hedgeTimer = setTimeout(startNext, HEDGE_AFTER_MS);
+    };
+    startNext();
   });
+}
+
+// Bounding box of one route segment, padded by `radius`.
+function segmentBox(route, seg, radius) {
+  const from = seg * SEGMENT_M;
+  const to = from + SEGMENT_M;
+  const { coords, cumDist } = route;
+  let s = Infinity, n = -Infinity, w = Infinity, e = -Infinity;
+  for (let i = 0; i < coords.length; i++) {
+    const next = cumDist[i + 1] ?? Infinity;
+    if (next < from) continue;
+    if (cumDist[i] > to) break;
+    const [lon, lat] = coords[i];
+    s = Math.min(s, lat); n = Math.max(n, lat); w = Math.min(w, lon); e = Math.max(e, lon);
+  }
+  const dLat = radius / 111320;
+  const dLon = radius / (111320 * Math.cos((((s + n) / 2) * Math.PI) / 180));
+  return [s - dLat, w - dLon, n + dLat, e + dLon].map((v) => v.toFixed(4)).join(',');
+}
+
+// Overpass answers bbox queries from its spatial index, much faster than "around".
+function segmentsQuery(route, segs, radius) {
+  const parts = segs.map((seg) => `nwr["amenity"="fuel"](${segmentBox(route, seg, radius)});`);
   return `[out:json][timeout:25];(${parts.join('')});out center tags;`;
 }
 
@@ -92,33 +126,125 @@ function toStation(el) {
 }
 
 /**
- * Gas stations within `radius` meters of the route, sorted by distance along it.
- * @param {object} route
- * Results are cached in this browser for a day, per route.
- * @param {number} radius meters
+ * Loads gas stations for just the part of the route you ask for.
+ *
+ *   const loader = createStationLoader(route, radius, onUpdate);
+ *   loader.setRange(from, to);   // meters along the route; call again as it changes
+ *   loader.retry();              // try failed segments again
+ *
+ * The route is cut into 25 km segments; only segments overlapping the range
+ * are requested, and loaded segments are kept (and cached in this browser),
+ * so moving the range forward only fetches what's new.
+ *
+ * onUpdate({stations, range, complete, loading, failed, stale}):
+ *   stations  stations in loaded segments of the range, sorted along the route
+ *   range     [from, to] that was asked for
+ *   complete  every segment in the range is loaded
+ *   loading   some segments in the range are still being fetched
+ *   failed    true if some segments in the range couldn't be loaded
+ *   stale     true if some segments are older saved data (servers didn't answer)
  */
-export async function fetchStations(route, radius) {
+export function createStationLoader(route, radius, onUpdate) {
+  const total = route.cumDist[route.cumDist.length - 1];
+  const lastSeg = Math.floor(Math.max(0, total - 1) / SEGMENT_M);
+  const index = createRouteIndex(route, radius);
   const key = cacheKey(route, radius);
-  let raw = readCache(key);
-  if (!raw) {
-    const data = await overpass(corridorQuery(route, radius));
-    const byId = new Map();
-    for (const el of data.elements || []) {
-      const station = toStation(el);
-      if (station && !byId.has(station.id)) byId.set(station.id, station);
-    }
-    raw = [...byId.values()];
-    writeCache(key, raw);
+  const saved = readCache(key);           // {at, segs: {seg: raw[]}} or null
+  const segs = new Map();                 // seg -> {status: 'ok'|'pending'|'failed', raw, stale}
+  let range = [0, 0];
+  let cancelled = false;
+  let inFlight = 0;
+
+  const freshSaved = saved && Date.now() - saved.at < CACHE_MAX_AGE_MS;
+  if (freshSaved) {
+    for (const [seg, raw] of Object.entries(saved.segs)) segs.set(Number(seg), { status: 'ok', raw, stale: false });
   }
 
-  const index = createRouteIndex(route, radius);
-  const stations = [];
-  for (const s of raw) {
-    const snap = index.project([s.lon, s.lat]);
-    if (snap && snap.offRoute <= radius) stations.push({ ...s, along: snap.along, offRoute: snap.offRoute });
+  const segsIn = ([from, to]) => {
+    const out = [];
+    for (let k = Math.max(0, Math.floor(from / SEGMENT_M)); k <= Math.min(lastSeg, Math.floor(to / SEGMENT_M)); k++) out.push(k);
+    return out;
+  };
+
+  function report() {
+    if (cancelled) return;
+    const wanted = segsIn(range);
+    const raw = new Map();
+    let complete = true, loading = false, failed = false, stale = false;
+    for (const k of wanted) {
+      const seg = segs.get(k);
+      if (seg?.status === 'ok') {
+        for (const st of seg.raw) raw.set(st.id, st);
+        if (seg.stale) stale = true;
+      } else {
+        complete = false;
+        if (!seg || seg.status === 'pending') loading = true;
+        else failed = true;
+      }
+    }
+    const stations = [];
+    for (const st of raw.values()) {
+      const p = index.project([st.lon, st.lat]);
+      if (p && p.offRoute <= radius) stations.push({ ...st, along: p.along, offRoute: p.offRoute });
+    }
+    stations.sort((a, b) => a.along - b.along);
+    onUpdate({ stations, range: [...range], complete, loading, failed, stale });
   }
-  stations.sort((a, b) => a.along - b.along);
-  return stations;
+
+  function save() {
+    const out = {};
+    for (const [k, seg] of segs) if (seg.status === 'ok' && !seg.stale) out[k] = seg.raw;
+    writeCache(key, out);
+  }
+
+  async function fetchGroup(group) {
+    inFlight++;
+    try {
+      const data = await overpass(segmentsQuery(route, group, radius));
+      const raw = (data.elements || []).map(toStation).filter(Boolean);
+      // A station is filed under every segment it's in; duplicates merge by id later.
+      for (const k of group) segs.set(k, { status: 'ok', raw, stale: false });
+      save();
+    } catch {
+      for (const k of group) {
+        const old = saved?.segs?.[k];
+        segs.set(k, old ? { status: 'ok', raw: old, stale: true } : { status: 'failed', raw: [] });
+      }
+    } finally {
+      inFlight--;
+    }
+    report();
+    pump();
+  }
+
+  // Start requests for missing segments, nearest first, a few at a time.
+  function pump() {
+    if (cancelled) return;
+    const missing = segsIn(range).filter((k) => !segs.has(k));
+    while (inFlight < PARALLEL_REQUESTS && missing.length) {
+      const group = [];
+      while (missing.length && group.length < SEGMENTS_PER_REQUEST &&
+        (!group.length || missing[0] === group[group.length - 1] + 1)) {
+        group.push(missing.shift());
+      }
+      for (const k of group) segs.set(k, { status: 'pending', raw: [] });
+      fetchGroup(group);
+    }
+  }
+
+  return {
+    setRange(from, to) {
+      range = [Math.max(0, from), Math.min(total, to)];
+      pump();
+      report();
+    },
+    retry() {
+      for (const k of segsIn(range)) if (segs.get(k)?.status === 'failed') segs.delete(k);
+      pump();
+      report();
+    },
+    cancel() { cancelled = true; },
+  };
 }
 
 // ---------- Cache (this browser only) ----------
@@ -133,16 +259,18 @@ function readCache(key) {
   try {
     const all = JSON.parse(localStorage.getItem(CACHE_KEY) || '{}');
     const hit = all[key];
-    return hit && Date.now() - hit.at < CACHE_MAX_AGE_MS ? hit.stations : null;
+    if (!hit || Date.now() - hit.at > CACHE_STALE_OK_MS) return null;
+    return hit;   // {at, segs}
   } catch {
     return null;
   }
 }
 
-function writeCache(key, stations) {
+function writeCache(key, segsObj) {
   try {
     const all = JSON.parse(localStorage.getItem(CACHE_KEY) || '{}');
-    all[key] = { at: Date.now(), stations };
+    all[key] = { at: all[key]?.at && Object.keys(all[key].segs || {}).length ? all[key].at : Date.now(), segs: segsObj };
+    if (!Object.keys(segsObj).length) delete all[key];
     const keep = Object.entries(all).sort((x, y) => y[1].at - x[1].at).slice(0, CACHE_ROUTES);
     localStorage.setItem(CACHE_KEY, JSON.stringify(Object.fromEntries(keep)));
   } catch {
@@ -155,21 +283,28 @@ function writeCache(key, stations) {
  * Measured from `from` (meters along) to the end of the route.
  * @returns {Array<{start:number, end:number, length:number, lastStation:object|null}>}
  */
-export function findGaps(stations, route, threshold, from = 0) {
-  const end = route.cumDist[route.cumDist.length - 1];
+export function findGaps(stations, route, threshold, from = 0, until = Infinity, { leading = true } = {}) {
+  const total = route.cumDist[route.cumDist.length - 1];
+  const end = Math.min(total, until);   // only judge the part of the route that's loaded
   const gaps = [];
   let prev = null;
   let prevAlong = from;
   for (const s of stations) {
     if (s.along < from) { prev = s; continue; }
-    if (s.along - prevAlong > threshold) {
+    if (s.along > end) break;
+    // A gap before the first station counts only if `from` is where you are;
+    // otherwise there may be stations just before the searched range.
+    if ((prev || leading) && s.along - prevAlong > threshold) {
       gaps.push({ start: prevAlong, end: s.along, length: s.along - prevAlong, lastStation: prev });
     }
     prev = s;
     prevAlong = s.along;
   }
-  if (end - prevAlong > threshold) {
+  if (end >= total && (prev || leading) && end - prevAlong > threshold) {
     gaps.push({ start: prevAlong, end, length: end - prevAlong, lastStation: prev, toEnd: true });
+  } else if (end < total && prev && end - prevAlong > threshold) {
+    // Runs past the searched range; it's at least this long.
+    gaps.push({ start: prevAlong, end, length: end - prevAlong, lastStation: prev, open: true });
   }
   return gaps;
 }
