@@ -1,0 +1,166 @@
+/* Roadtripper: glanceable panels, highway-sign green accent, works one-handed on a phone. */
+:root {
+  --bg: #f4f6f4;
+  --surface: #ffffff;
+  --fg: #1b221d;
+  --muted: #5b675f;
+  --border: #d6ddd8;
+  --accent: #0b6b3a;      /* US guide-sign green */
+  --accent-fg: #ffffff;
+  --warn: #b7791f;        /* advisory amber, for gaps and alerts */
+
+  --font-body: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-data: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  --radius: 10px;
+  --space: 1rem;
+  --tap: 48px;            /* minimum touch target */
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #111614;
+    --surface: #1a211d;
+    --fg: #e6ece8;
+    --muted: #9aa8a0;
+    --border: #2c3631;
+    --accent: #2f9e63;
+    --accent-fg: #0b130e;
+    --warn: #e0a84a;
+  }
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 16px/1.5 var(--font-body);
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.wrap {
+  width: 100%;
+  max-width: 44rem;
+  margin: 0 auto;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+
+a { color: var(--accent); }
+a:focus-visible, button:focus-visible, input:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Header */
+.site-header {
+  background: var(--accent);
+  color: var(--accent-fg);
+  padding-block: 0.9rem;
+}
+.brand {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+.tagline {
+  margin: 0;
+  font-size: 0.9rem;
+  opacity: 0.85;
+}
+
+/* Main */
+main {
+  flex: 1;
+  display: grid;
+  gap: var(--space);
+  padding-block: var(--space);
+}
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: var(--space);
+}
+.panel h2 {
+  margin: 0 0 0.5rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+.placeholder, .status {
+  margin: 0;
+  color: var(--muted);
+}
+.status { margin-top: 0.75rem; font-size: 0.9rem; }
+
+/* Trip form */
+.trip-form {
+  display: grid;
+  gap: 0.75rem;
+}
+.field {
+  display: grid;
+  gap: 0.25rem;
+}
+.field label {
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+input {
+  min-height: var(--tap);
+  padding: 0 0.75rem;
+  font: inherit;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  width: 100%;
+}
+button {
+  min-height: var(--tap);
+  padding: 0 1.25rem;
+  font: inherit;
+  font-weight: 700;
+  color: var(--accent-fg);
+  background: var(--accent);
+  border: 0;
+  border-radius: 8px;
+  cursor: pointer;
+}
+button:disabled, input:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+@media (min-width: 40rem) {
+  .trip-form { grid-template-columns: 1fr 1fr; }
+  .trip-form button { grid-column: 1 / -1; justify-self: start; }
+}
+
+/* Footer */
+.site-footer {
+  border-top: 1px solid var(--border);
+  padding-block: var(--space);
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.site-footer p { margin: 0 0 0.4rem; }
+.site-footer p:last-child { margin-bottom: 0; }
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}

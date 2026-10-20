@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="description" content="Find gas stations at the right distance ahead and see the weather where you'll be, when you'll be there.">
+  <meta name="color-scheme" content="light dark">
+  <title>Roadtripper</title>
+  <link rel="stylesheet" href="css/styles.css">
+  <script type="module" src="js/app.js"></script>
+</head>
+<body>
+  <header class="site-header">
+    <div class="wrap">
+      <h1 class="brand">Roadtripper</h1>
+      <p class="tagline">Gas and weather for the road ahead</p>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section class="panel" aria-labelledby="trip-heading">
+      <h2 id="trip-heading">Trip</h2>
+      <form id="trip-form" class="trip-form" novalidate>
+        <div class="field">
+          <label for="trip-from">From</label>
+          <input id="trip-from" name="from" type="text" placeholder="Current location" autocomplete="off" disabled>
+        </div>
+        <div class="field">
+          <label for="trip-to">To</label>
+          <input id="trip-to" name="to" type="text" placeholder="Destination" autocomplete="off" disabled>
+        </div>
+        <div class="field">
+          <label for="trip-depart">Departure</label>
+          <input id="trip-depart" name="depart" type="datetime-local" disabled>
+        </div>
+        <button type="submit" disabled>Plan route</button>
+      </form>
+      <p class="status" id="status" role="status">Route planning isn't built yet.</p>
+    </section>
+
+    <section class="panel" aria-labelledby="gas-heading">
+      <h2 id="gas-heading">Gas ahead</h2>
+      <p class="placeholder">Stations in your distance window, with miles ahead, distance off route, and detour time.</p>
+    </section>
+
+    <section class="panel" aria-labelledby="weather-heading">
+      <h2 id="weather-heading">Weather ahead</h2>
+      <p class="placeholder">Forecasts along the route for the time you'll reach each point, plus NWS alerts.</p>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap">
+      <p>
+        Map and station data &copy;
+        <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a>.
+        Routing by <a href="https://project-osrm.org/" target="_blank" rel="noopener">OSRM</a>.
+        Search by <a href="https://photon.komoot.io/" target="_blank" rel="noopener">Photon</a>.
+        Map tiles by <a href="https://openfreemap.org/" target="_blank" rel="noopener">OpenFreeMap</a>.
+        Weather by <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo.com</a> (CC BY 4.0)
+        and the <a href="https://www.weather.gov/" target="_blank" rel="noopener">National Weather Service</a>.
+      </p>
+      <p>
+        <a href="https://github.com/carmiendo/roadtripper" target="_blank" rel="noopener">Source code</a>
+        · Licensed under the GNU GPL v3.0
+      </p>
+    </div>
+  </footer>
+</body>
+</html>
