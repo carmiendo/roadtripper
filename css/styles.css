@@ -15,6 +15,7 @@
   /* Accent (pink by default; overridden by [data-accent]) */
   --accent: #c2185b;
   --accent-fg: #ffffff;
+  --accent-ink: #c2185b;   /* accent used as text on surfaces */
   --accent-soft: #fce4ec;
   --route: #d81b60;
 
@@ -40,18 +41,20 @@
 
 /* ---------- Accent presets ---------- */
 
-:root[data-accent="pink"]   { --accent: #c2185b; --accent-fg: #ffffff; --accent-soft: #fce4ec; --route: #d81b60; }
-:root[data-accent="purple"] { --accent: #6a3fb5; --accent-fg: #ffffff; --accent-soft: #ede5f8; --route: #7e57c2; }
-:root[data-accent="blue"]   { --accent: #1565c0; --accent-fg: #ffffff; --accent-soft: #e3eefb; --route: #1e88e5; }
-:root[data-accent="green"]  { --accent: #0b6b3a; --accent-fg: #ffffff; --accent-soft: #e3f2e9; --route: #138a4b; }
-:root[data-accent="orange"] { --accent: #b84a00; --accent-fg: #ffffff; --accent-soft: #fdeadb; --route: #e65c00; }
+:root[data-accent="pink"]   { --accent: #c2185b; --accent-ink: #c2185b; --accent-fg: #ffffff; --accent-soft: #fce4ec; --route: #d81b60; }
+:root[data-accent="purple"] { --accent: #6a3fb5; --accent-ink: #6a3fb5; --accent-fg: #ffffff; --accent-soft: #ede5f8; --route: #7e57c2; }
+:root[data-accent="blue"]   { --accent: #1565c0; --accent-ink: #1565c0; --accent-fg: #ffffff; --accent-soft: #e3eefb; --route: #1e88e5; }
+:root[data-accent="green"]  { --accent: #0b6b3a; --accent-ink: #0b6b3a; --accent-fg: #ffffff; --accent-soft: #e3f2e9; --route: #138a4b; }
+:root[data-accent="orange"] { --accent: #b84a00; --accent-ink: #b84a00; --accent-fg: #ffffff; --accent-soft: #fdeadb; --route: #e65c00; }
 
 @media (prefers-color-scheme: dark) {
-  :root[data-accent="pink"]   { --accent: #f48fb1; --accent-fg: #33081a; --accent-soft: #3d1626; --route: #f06292; }
-  :root[data-accent="purple"] { --accent: #b39ddb; --accent-fg: #1e1033; --accent-soft: #2c2240; --route: #9575cd; }
-  :root[data-accent="blue"]   { --accent: #90caf9; --accent-fg: #0b2140; --accent-soft: #15283d; --route: #64b5f6; }
-  :root[data-accent="green"]  { --accent: #7fd4a1; --accent-fg: #0a2416; --accent-soft: #15301f; --route: #4caf7a; }
-  :root[data-accent="orange"] { --accent: #ffb37a; --accent-fg: #3a1800; --accent-soft: #3a2414; --route: #ff8a3d; }
+  /* Saturated fills with white text; brighter "ink" for links and text on dark surfaces.
+     The route line keeps its light-mode color because the map tiles stay light. */
+  :root[data-accent="pink"]   { --accent: #d6146f; --accent-fg: #ffffff; --accent-ink: #ff5ca8; --accent-soft: #3a0f24; }
+  :root[data-accent="purple"] { --accent: #7c3aed; --accent-fg: #ffffff; --accent-ink: #b58cff; --accent-soft: #2a1b47; }
+  :root[data-accent="blue"]   { --accent: #1a6fe0; --accent-fg: #ffffff; --accent-ink: #6aa8ff; --accent-soft: #13284a; }
+  :root[data-accent="green"]  { --accent: #0a8547; --accent-fg: #ffffff; --accent-ink: #3ddc84; --accent-soft: #10301f; }
+  :root[data-accent="orange"] { --accent: #c94700; --accent-fg: #ffffff; --accent-ink: #ff9147; --accent-soft: #3b2010; }
 }
 
 /* ---------- Base ---------- */
@@ -82,9 +85,9 @@ body {
   padding-right: max(16px, env(safe-area-inset-right, 0px));
 }
 
-a { color: var(--accent); }
+a { color: var(--accent-ink); }
 :focus-visible {
-  outline: 3px solid var(--accent);
+  outline: 3px solid var(--accent-ink);
   outline-offset: 2px;
 }
 
@@ -186,7 +189,7 @@ input[type="text"], input[type="datetime-local"] {
   border: 2px solid var(--border);
   border-radius: 10px;
 }
-input[type="text"]:focus { border-color: var(--accent); outline: none; }
+input[type="text"]:focus { border-color: var(--accent-ink); outline: none; }
 
 .primary-button, .secondary-button {
   min-height: var(--tap);
@@ -204,7 +207,7 @@ input[type="text"]:focus { border-color: var(--accent); outline: none; }
   border: 0;
 }
 .secondary-button {
-  color: var(--accent);
+  color: var(--accent-ink);
   background: var(--accent-soft);
   border: 0;
 }
@@ -215,7 +218,7 @@ input[type="text"]:focus { border-color: var(--accent); outline: none; }
   padding: 0 0.25rem;
   font: inherit;
   font-weight: 600;
-  color: var(--accent);
+  color: var(--accent-ink);
   background: none;
   border: 0;
   cursor: pointer;
@@ -281,7 +284,7 @@ input[type="text"]:focus { border-color: var(--accent); outline: none; }
   border-radius: 50%;
   background: var(--route);
 }
-.recent-item:active { border-color: var(--accent); }
+.recent-item:active { border-color: var(--accent-ink); }
 
 /* Address suggestions */
 .combo { position: relative; }
@@ -451,7 +454,7 @@ legend { padding: 0; margin-bottom: 0.5rem; font-weight: 700; }
   font-weight: 600;
 }
 .segmented input:checked + span { background: var(--accent); color: var(--accent-fg); }
-.segmented input:focus-visible + span { outline: 3px solid var(--accent); outline-offset: 1px; }
+.segmented input:focus-visible + span { outline: 3px solid var(--accent-ink); outline-offset: 1px; }
 
 /* ---------- Footer ---------- */
 
