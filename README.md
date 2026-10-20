@@ -9,7 +9,7 @@ Live at [roadtripper.quest](https://roadtripper.quest).
 
 ## Status
 
-Early development. The page skeleton is in place; routing, stations, and weather are not built yet.
+Routing, gas stations ahead, and weather along the route are working. Next: phone layout refinements and offline support.
 
 ## Planned features
 

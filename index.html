@@ -116,9 +116,13 @@
       <p class="placeholder" id="gas-empty"></p>
     </section>
 
-    <section class="panel" aria-labelledby="weather-heading">
+    <section class="panel" id="weather-panel" aria-labelledby="weather-heading">
       <h2 id="weather-heading">Weather ahead</h2>
-      <p class="placeholder">Forecasts along the route for the time you'll reach each point, plus NWS alerts.</p>
+      <p class="wx-context" id="wx-context"></p>
+      <ul class="headsups" id="wx-headsup" aria-label="Weather to watch for"></ul>
+      <ul class="alerts" id="wx-alerts" aria-label="National Weather Service alerts"></ul>
+      <ol class="wx-list" id="wx-list" aria-label="Forecast along the route"></ol>
+      <p class="placeholder" id="wx-empty"></p>
     </section>
   </main>
 

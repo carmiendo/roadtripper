@@ -10,7 +10,8 @@
 //   recent.js    recent destinations (stored in the browser)
 //   stations.js  Overpass gas stations and gap detection
 //   gas.js       the "Gas ahead" panel
-// Coming next: weather.js (Open-Meteo, NWS).
+//   weather.js   Open-Meteo forecasts and NWS alerts
+//   weather-panel.js  the "Weather ahead" panel
 
 import { searchPlaces, reversePlace } from './geocode.js';
 import { getRoute } from './routing.js';
@@ -18,6 +19,7 @@ import { getCurrentPosition } from './location.js';
 import { createMap } from './map.js';
 import { ACCENTS, CHOICES, loadSettings, saveSettings, applyAccent, nearestChoice } from './settings.js';
 import { createGasPanel } from './gas.js';
+import { createWeatherPanel } from './weather-panel.js';
 import { projectToRoute, pointAlong } from './geo.js';
 import { loadRecent, addRecent } from './recent.js';
 import { formatDistance, formatDuration, formatDayClock, toLocalInputValue } from './format.js';
@@ -36,6 +38,7 @@ const state = {
 let map = null;
 let planning = false;
 let gas = null;
+let weather = null;
 let watchId = null;
 
 const ON_ROUTE_M = 1000;   // within 1 km of the route counts as being on it
@@ -254,6 +257,8 @@ async function plan(event) {
     setStatus('');
     gas.setProgress(null);
     gas.setTrip(state.trip);
+    weather.setProgress(null);
+    weather.setTrip(state.trip);
     startTracking(fromHere ? from : null);
   } catch (err) {
     setStatus(err.message, 'error');
@@ -270,7 +275,9 @@ function updateProgress(pos) {
   const { route } = state.trip;
   const snap = projectToRoute(route, [pos.lon, pos.lat]);
   const onRoute = snap.offRoute <= ON_ROUTE_M;
-  gas.setProgress(onRoute ? { along: snap.along, live: true } : null);
+  const progress = onRoute ? { along: snap.along, live: true } : null;
+  gas.setProgress(progress);
+  weather.setProgress(progress);
   map?.showPosition(onRoute ? pointAlong(route, snap.along) : null);
 }
 
@@ -364,6 +371,7 @@ function setupSettings() {
     }
     if (name === 'distanceUnit' && state.trip) renderRoute(state.trip, { refit: false });
     gas.refreshSettings();
+    weather.refreshSettings();
   });
 
   $('open-settings').addEventListener('click', () => {
@@ -404,6 +412,7 @@ function init() {
 
   renderRecent();
   gas = createGasPanel({ settings, getMap: () => map });
+  weather = createWeatherPanel({ settings });
   setupSettings();
 }
 
