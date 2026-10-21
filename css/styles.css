@@ -825,6 +825,45 @@ input[type="text"]:focus { border-color: var(--accent-ink); outline: none; }
 .wx-hour-temp { font-weight: 700; }
 .wx-hour-pop { font-size: 0.75rem; font-weight: 700; color: var(--wx-rain); min-height: 1em; }
 
+/* Compare departure times */
+.compare { margin: 0 0 0.75rem; border: 1px solid var(--border); border-radius: 10px; }
+.compare summary {
+  display: flex;
+  align-items: center;
+  min-height: var(--tap);
+  padding: 0 0.9rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.compare-list { margin: 0; padding: 0; list-style: none; }
+.compare-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 0.75rem;
+  row-gap: 0.2rem;
+  padding: 0.55rem 0.9rem;
+  border-top: 1px solid var(--border);
+}
+.compare-times { margin: 0; font-size: 0.95rem; font-variant-numeric: tabular-nums; }
+.compare-wx { grid-column: 1 / -1; margin: 0; }
+.compare-current { background: var(--accent-soft); }
+.compare-row:last-child { border-radius: 0 0 9px 9px; }
+.compare-current-label { font-size: 0.8rem; font-weight: 700; color: var(--accent-ink); }
+.compare-use { min-height: 40px; padding: 0 0.9rem; }
+.compare-tag {
+  display: inline-block;
+  margin: 0.1rem 0.25rem 0.1rem 0;
+  padding: 0.05rem 0.5rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  border-radius: 999px;
+  color: var(--warn);
+  background: var(--warn-soft);
+}
+.compare-tag--ok { color: var(--muted); background: var(--bg); font-weight: 600; }
+.compare-temps { font-size: 0.8rem; color: var(--muted); white-space: nowrap; }
+
 /* ---------- Settings ---------- */
 
 .settings {

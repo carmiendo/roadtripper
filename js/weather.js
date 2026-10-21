@@ -217,3 +217,34 @@ export function hazards(h) {
   if ((h.visibility ?? Infinity) < VIS_WARN_M || kind === 'fog') out.push('fog');
   return out;
 }
+
+// ---------- Whole-trip summary (for comparing departure times) ----------
+
+/**
+ * What the weather looks like over a whole trip leaving at `departAt`.
+ * @param {Array<{along:number, hourly:object}>} points forecast points along the route
+ * @param {(along:number) => number} secondsTo drive time from the start to a point
+ * @returns {{hazards: Array<{kind:string, first:Date, last:Date}>, minTemp:number|null,
+ *   maxTemp:number|null, maxGust:number|null, missing:boolean}}
+ *   hazards are in route order; missing is true if some points have no forecast for that time
+ */
+export function summarizeTrip(points, departAt, secondsTo) {
+  const runs = new Map();
+  let minTemp = null, maxTemp = null, maxGust = null, missing = false;
+  for (const p of points) {
+    const eta = new Date(departAt.getTime() + secondsTo(p.along) * 1000);
+    const h = hourAt(p.hourly, eta);
+    if (!h) { missing = true; continue; }
+    if (h.temperature_2m != null) {
+      minTemp = minTemp == null ? h.temperature_2m : Math.min(minTemp, h.temperature_2m);
+      maxTemp = maxTemp == null ? h.temperature_2m : Math.max(maxTemp, h.temperature_2m);
+    }
+    if (h.wind_gusts_10m != null) maxGust = Math.max(maxGust ?? 0, h.wind_gusts_10m);
+    for (const kind of hazards(h)) {
+      const run = runs.get(kind);
+      if (run) run.last = eta; else runs.set(kind, { kind, first: eta, last: eta });
+    }
+  }
+  const list = [...runs.values()].sort((a, b) => a.first - b.first);
+  return { hazards: list, minTemp, maxTemp, maxGust, missing };
+}

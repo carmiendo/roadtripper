@@ -296,6 +296,22 @@ async function plan(event) {
   }
 }
 
+// Change when the current trip leaves; everything timed (arrival, gas ETAs,
+// station hours, weather) follows.
+function setDeparture(date) {
+  if (!state.trip) return;
+  state.trip.departAt = date;
+  $('trip-depart').value = toLocalInputValue(date);
+  $('depart-field').hidden = false;
+  $('depart-toggle').textContent = 'Leave now';
+  $('depart-toggle').setAttribute('aria-expanded', 'true');
+  updateDepartSummary();
+  renderRoute(state.trip, { refit: false });
+  gas.refreshSettings();
+  weather.refreshSettings();
+  persistTrip();
+}
+
 // ---------- Saved trip and offline ----------
 
 let saveTimer = null;
@@ -585,6 +601,7 @@ function init() {
     settings,
     // New forecasts can bring time zones the station hours depend on.
     onChange: () => { persistTrip(); gas.refreshSettings(); },
+    onChooseDeparture: setDeparture,
   });
   setupSettings();
   const restored = restoreTrip();

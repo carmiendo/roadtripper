@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Carmen Jackson. Licensed under the GNU GPL v3.0 (see LICENSE).
 
 import {
-  samplePoints, fetchForecasts, namePoints, fetchAlerts, hourAt, hourAtIndex, describe, hazards,
+  samplePoints, fetchForecasts, namePoints, fetchAlerts, hourAt, hourAtIndex, describe, hazards, summarizeTrip,
 } from './weather.js';
 import { timeAlong } from './geo.js';
 import { formatDistance, formatDayClock, formatClock } from './format.js';
@@ -62,10 +62,12 @@ const HAZARD_LABEL = {
   fog: 'Low visibility',
 };
 
-export function createWeatherPanel({ settings, onChange }) {
+export function createWeatherPanel({ settings, onChange, onChooseDeparture }) {
   const el = {
     context: $('wx-context'),
     headsup: $('wx-headsup'),
+    compare: $('wx-compare'),
+    compareRows: $('wx-compare-rows'),
     alerts: $('wx-alerts'),
     list: $('wx-list'),
     empty: $('wx-empty'),
@@ -257,6 +259,80 @@ export function createWeatherPanel({ settings, onChange }) {
     return li;
   }
 
+  // ---------- Compare departure times ----------
+
+  const COMPARE_HOURS = [0, 1, 2, 3, 4];
+  const SHORT = { ice: 'Ice', snow: 'Snow', storm: 'Storms', rain: 'Rain', wind: 'Gusty', fog: 'Fog' };
+
+  function renderCompare() {
+    // Only useful while planning, not once you're on the road.
+    const show = state.trip && state.points && !state.progress?.live;
+    el.compare.hidden = !show;
+    if (!show) return;
+    const { route, departAt } = state.trip;
+    const now = new Date();
+    const base = departAt < now ? now : departAt;
+    const options = COMPARE_HOURS.map((h) => new Date(base.getTime() + h * 3600 * 1000));
+    if (departAt > new Date(now.getTime() + 15 * 60000)) options.unshift(now);   // planning ahead: also show "now"
+    const tUnit = settings.tempUnit;
+
+    el.compareRows.replaceChildren(...options.map((leave) => {
+      const sum = summarizeTrip(state.points, leave, (along) => timeAlong(route, along));
+      const arrive = new Date(leave.getTime() + route.duration * 1000);
+      const current = Math.abs(leave - departAt) < 60000 || (departAt < now && leave === options[0]);
+      const li = document.createElement('li');
+      li.className = current ? 'compare-row compare-current' : 'compare-row';
+
+      const times = document.createElement('p');
+      times.className = 'compare-times';
+      const leaveText = Math.abs(leave - now) < 2 * 60000 ? 'Now' : formatDayClock(leave, now);
+      const strong = document.createElement('strong');
+      strong.textContent = leaveText === 'Now' ? 'Leave now' : `Leave ${leaveText}`;
+      times.append(strong, ` · arrive ${formatDayClock(arrive, leave)}`);
+
+      const wx = document.createElement('p');
+      wx.className = 'compare-wx';
+      if (sum.missing && !sum.hazards.length && sum.minTemp == null) {
+        wx.textContent = 'Forecast not available yet';
+      } else {
+        const tags = sum.hazards.map((hz) => {
+          const t = document.createElement('span');
+          t.className = `compare-tag compare-tag--${hz.kind}`;
+          t.textContent = SHORT[hz.kind];
+          return t;
+        });
+        if (!tags.length) {
+          const ok = document.createElement('span');
+          ok.className = 'compare-tag compare-tag--ok';
+          ok.textContent = 'No weather concerns';
+          tags.push(ok);
+        }
+        const temps = document.createElement('span');
+        temps.className = 'compare-temps';
+        temps.textContent = sum.minTemp == null ? '' : sum.minTemp === sum.maxTemp
+          ? temp(sum.minTemp, tUnit) : `${temp(sum.minTemp, tUnit)} to ${temp(sum.maxTemp, tUnit)}`;
+        if (sum.missing) temps.textContent += ' (partial forecast)';
+        wx.append(...tags, temps);
+      }
+
+      let action;
+      if (current) {
+        action = document.createElement('span');
+        action.className = 'compare-current-label';
+        action.textContent = 'Current';
+      } else {
+        action = document.createElement('button');
+        action.type = 'button';
+        action.className = 'secondary-button compare-use';
+        action.textContent = 'Use';
+        action.setAttribute('aria-label', `Use ${strong.textContent.toLowerCase()}`);
+        action.addEventListener('click', () => onChooseDeparture?.(leave));
+      }
+      li.append(times, action, wx);
+      return li;
+    }));
+  }
+
   // ---------- Render ----------
 
   function render() {
@@ -306,6 +382,7 @@ export function createWeatherPanel({ settings, onChange }) {
     const asOf = age > 30 * 60 * 1000 ? ` Forecast from ${formatDayClock(new Date(state.fetchedAt))}.` : '';
     el.context.textContent = `${base}${asOf} Tap a row for the next few hours.`;
     el.headsup.replaceChildren(...headsUp(rows));
+    renderCompare();
     const alerts = state.alerts?.alerts ?? [];
     el.alerts.replaceChildren(...alerts.map(alertItem));
     el.list.replaceChildren(...rows.map((r) => row(r, from)));

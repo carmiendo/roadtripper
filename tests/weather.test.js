@@ -73,3 +73,24 @@ test('hazards: driving concerns', () => {
   assert.deepEqual(hazards({ ...base, weather_code: 67 }), ['ice']);
   assert.deepEqual(hazards(null), []);
 });
+
+test('summarizeTrip: hazards and temperatures shift with the departure time', async () => {
+  const { summarizeTrip } = await import('../js/weather.js');
+  const start = Date.UTC(2026, 9, 20, 0) / 1000;
+  // Snow between hours 3 and 5 at the second point; clear elsewhere.
+  const snowy = hourly(start, 48);
+  for (const i of [3, 4, 5]) { snowy.weather_code[i] = 73; snowy.snowfall[i] = 1; }
+  const points = [
+    { along: 0, hourly: hourly(start, 48) },
+    { along: 100000, hourly: snowy },
+  ];
+  const secondsTo = (along) => along / 25;   // 4000 s to the second point
+  const early = summarizeTrip(points, new Date(start * 1000), secondsTo);   // reach it ~1:07
+  assert.deepEqual(early.hazards, []);
+  const later = summarizeTrip(points, new Date((start + 2 * 3600) * 1000), secondsTo);   // ~3:07
+  assert.deepEqual(later.hazards.map((h) => h.kind), ['snow']);
+  assert.equal(later.minTemp, 12);
+  assert.equal(later.maxTemp, 13);
+  const tooLate = summarizeTrip(points, new Date((start + 60 * 3600) * 1000), secondsTo);
+  assert.equal(tooLate.missing, true);
+});
