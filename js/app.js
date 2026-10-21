@@ -18,7 +18,7 @@
 import { searchPlaces, reversePlace } from './geocode.js';
 import { getRoute } from './routing.js';
 import { getCurrentPosition } from './location.js';
-import { createMap } from './map.js';
+import { createMap, preloadMap } from './map.js';
 import { ACCENTS, CHOICES, loadSettings, saveSettings, applyAccent, nearestChoice } from './settings.js';
 import { createGasPanel } from './gas.js';
 import { createWeatherPanel } from './weather-panel.js';
@@ -569,8 +569,16 @@ function init() {
   gas = createGasPanel({ settings, getMap: () => map, onChange: persistTrip });
   weather = createWeatherPanel({ settings, onChange: persistTrip });
   setupSettings();
-  restoreTrip();
+  const restored = restoreTrip();
   setupOffline();
+  document.documentElement.dataset.ready = '1';
+
+  // With the start screen up and nothing else going on, fetch the map library
+  // so the map appears quickly once a route is planned.
+  if (!restored) {
+    const idle = window.requestIdleCallback || ((fn) => setTimeout(fn, 1500));
+    idle(() => preloadMap(), { timeout: 4000 });
+  }
 }
 
 init();

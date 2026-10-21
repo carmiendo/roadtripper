@@ -18,13 +18,60 @@ function markerEl(kind) {
   return el;
 }
 
+// ---------- Loading the map library ----------
+// MapLibre is large (about 800 KB), so it loads only when a map is needed, or
+// quietly in the background once the start screen is up (preloadMap).
+
+const LIB = 'https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl';
+let libPromise = null;
+
+function loadMapLibre() {
+  if (window.maplibregl) return Promise.resolve();
+  if (libPromise) return libPromise;
+  libPromise = new Promise((resolve, reject) => {
+    const css = document.createElement('link');
+    css.rel = 'stylesheet';
+    css.href = `${LIB}.css`;
+    document.head.append(css);
+    const script = document.createElement('script');
+    script.src = `${LIB}.js`;
+    script.async = true;
+    script.onload = () => (window.maplibregl ? resolve() : reject(new Error('Map library missing')));
+    script.onerror = () => { libPromise = null; reject(new Error("Map library didn't load")); };
+    document.head.append(script);
+  });
+  return libPromise;
+}
+
+/** Start downloading the map library without showing a map. */
+export function preloadMap() {
+  loadMapLibre().catch(() => {});
+}
+
+const METHODS = ['showRoute', 'clear', 'refreshColors', 'showStations', 'showGaps', 'showPosition'];
+
+/**
+ * A map in `container`. Returns right away; calls made before the library
+ * has loaded are applied once it has.
+ */
 export function createMap(container) {
-  if (!window.maplibregl) {
-    container.classList.add('map--unavailable');
-    container.textContent = "The map couldn't load. Route details are still shown below.";
-    const noop = () => {};
-    return { showRoute: noop, clear: noop, refreshColors: noop, showStations: noop, showGaps: noop, showPosition: noop };
-  }
+  container.classList.add('map--loading');
+  const real = loadMapLibre().then(
+    () => { container.classList.remove('map--loading'); return createMapNow(container); },
+    () => {
+      container.classList.remove('map--loading');
+      container.classList.add('map--unavailable');
+      container.textContent = "The map couldn't load. Route details are still shown below.";
+      return null;
+    },
+  );
+  return Object.fromEntries(METHODS.map((name) => [name, async (...args) => {
+    const m = await real;
+    return m ? m[name](...args) : undefined;
+  }]));
+}
+
+function createMapNow(container) {
 
   const map = new maplibregl.Map({
     container,

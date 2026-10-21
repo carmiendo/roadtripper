@@ -390,6 +390,13 @@ input[type="text"]:focus { border-color: var(--accent-ink); outline: none; }
   border: 1px solid var(--border);
   background: var(--bg);
 }
+.map--loading {
+  background:
+    linear-gradient(100deg, transparent 30%, rgb(255 255 255 / 0.35) 50%, transparent 70%) var(--bg);
+  background-size: 200% 100%;
+  animation: map-loading 1.4s ease-in-out infinite;
+}
+@keyframes map-loading { from { background-position: 100% 0; } to { background-position: -100% 0; } }
 .map--unavailable {
   display: grid;
   place-items: center;
