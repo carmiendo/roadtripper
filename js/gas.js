@@ -1,7 +1,7 @@
 // "Gas ahead" panel: stations around a target distance, detours, gap warnings.
 // Copyright (C) 2026 Carmen Jackson. Licensed under the GNU GPL v3.0 (see LICENSE).
 
-import { createStationLoader, findGaps } from './stations.js';
+import { createStationLoader, findGaps, pickAroundTarget } from './stations.js';
 import { getDetourLengths } from './routing.js';
 import { pointAlong, timeAlong, sliceAlong } from './geo.js';
 import { MAX_STATION_RADIUS, saveSettings } from './settings.js';
@@ -344,11 +344,8 @@ export function createGasPanel({ settings, getMap, onChange }) {
     const gapAfterStation = new Map(gaps.filter((g) => g.lastStation).map((g) => [g.lastStation.id, g]));
 
     // Stations in the window
-    const ahead = near.filter((s) => s.along >= Math.max(from, rStart) && s.along <= rEnd);
-    const filtered = ahead;
     const target = settings.gasTarget;
-    const before = filtered.filter((s) => s.along - from <= target).slice(-PER_SIDE);
-    const after = filtered.filter((s) => s.along - from > target).slice(0, PER_SIDE);
+    const { before, after } = pickAroundTarget(near, { from, target, range: [rStart, rEnd], perSide: PER_SIDE });
     const shown = [...before, ...after];
 
     const items = [];

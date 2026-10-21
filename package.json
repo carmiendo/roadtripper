@@ -1,0 +1,10 @@
+{
+  "name": "roadtripper",
+  "private": true,
+  "type": "module",
+  "description": "Gas and weather for the road ahead. No build step; this file only configures tests.",
+  "scripts": {
+    "test": "node --test \"tests/**/*.test.js\""
+  },
+  "license": "GPL-3.0-only"
+}

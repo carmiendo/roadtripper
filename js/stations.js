@@ -308,3 +308,19 @@ export function findGaps(stations, route, threshold, from = 0, until = Infinity,
   }
   return gaps;
 }
+
+/**
+ * The stations closest to a target distance ahead: up to `perSide` before it
+ * (nearest the target last) and up to `perSide` past it, within `range`.
+ * @param {Array} stations sorted by `along`
+ * @param {{from:number, target:number, range:[number, number], perSide:number}} opts
+ *   from: your position along the route; target: meters ahead of `from`
+ */
+export function pickAroundTarget(stations, { from, target, range, perSide }) {
+  const [start, end] = range;
+  const ahead = stations.filter((s) => s.along >= Math.max(from, start) && s.along <= end);
+  return {
+    before: ahead.filter((s) => s.along - from <= target).slice(-perSide),
+    after: ahead.filter((s) => s.along - from > target).slice(0, perSide),
+  };
+}

@@ -49,6 +49,16 @@ python3 -m http.server 8000
 
 Then open http://localhost:8000. Location access works on `localhost` and on HTTPS sites.
 
+## Tests
+
+Tests use Node's built-in test runner (Node 20 or later), with nothing to install:
+
+```sh
+npm test
+```
+
+They cover the route math, gap warnings, the stations picked around your target, weather sampling and hazards, saved trips, settings, and the offline file list. GitHub runs them on every push.
+
 ## Deployment
 
 GitHub Pages, deployed from the root of the `main` branch. `.nojekyll` turns off Jekyll processing.
