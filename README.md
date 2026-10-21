@@ -19,6 +19,7 @@ Routing, gas stations ahead, and weather along the route are working. Next: phon
 4. Weather at your arrival time at points along the route, with NWS alerts
 5. Settings: color, units (miles/km, °F/°C), max distance off route, gap warning length
 6. Recent destinations and a results-first layout for use on the road
+7. Installable to the home screen (Chrome: menu → Add to Home screen / Install app)
 
 Planned: offline caching of the last route and forecasts, and traffic-aware drive times.
 
@@ -35,7 +36,7 @@ All free and used without API keys:
 | Weather alerts | [National Weather Service API](https://www.weather.gov/documentation/services-web-api) |
 | Map | [MapLibre GL JS](https://maplibre.org/) with [OpenFreeMap](https://openfreemap.org/) tiles |
 
-Map and station data © OpenStreetMap contributors, available under the [Open Database License](https://www.openstreetmap.org/copyright). Weather data by Open-Meteo.com, under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+Map and station data © OpenStreetMap contributors, available under the [Open Database License](https://www.openstreetmap.org/copyright). Weather data by Open-Meteo.com, under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). App icon based on the 🚙 emoji from [Twemoji](https://github.com/jdecked/twemoji), under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
 
 ## Running locally
 

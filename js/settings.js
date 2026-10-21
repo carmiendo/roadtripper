@@ -65,4 +65,15 @@ export function saveSettings(settings) {
 export function applyAccent(id) {
   const known = ACCENTS.some((a) => a.id === id);
   document.documentElement.dataset.accent = known ? id : DEFAULTS.accent;
+  syncThemeColor();
 }
+
+// The phone's status bar uses <meta name="theme-color">; match the header.
+function syncThemeColor() {
+  const meta = document.querySelector('meta[name="theme-color"]');
+  const color = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
+  if (meta && color) meta.setAttribute('content', color);
+}
+try {
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', syncThemeColor);
+} catch { /* older browsers */ }
