@@ -20,6 +20,7 @@ const SHELL = [
   'manifest.webmanifest',
   'css/styles.css',
   'js/app.js',
+  'js/config.js',
   'js/format.js',
   'js/gas.js',
   'js/geo.js',

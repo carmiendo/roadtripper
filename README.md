@@ -28,15 +28,15 @@ Routing, gas stations ahead, weather and road conditions along the route, home-s
 13. California chain controls and closures ahead on the route (Caltrans)
 14. Recent problems log in Settings, with a copy button for bug reports
 
-Planned: traffic-aware drive times.
+Traffic-aware drive times from TomTom when the `TOMTOM_KEY` secret is set (otherwise OSRM's normal-traffic times).
 
 ## Data sources
 
-All free and used without API keys:
+Free; all but TomTom work without an API key:
 
 | Purpose | Service |
 |---|---|
-| Routing | [OSRM](https://project-osrm.org/) (project and [FOSSGIS](https://routing.openstreetmap.de/) servers), with [Valhalla](https://valhalla.github.io/valhalla/) as fallback |
+| Routing | [TomTom Routing API](https://developer.tomtom.com/routing-api/documentation) with traffic (optional, needs a key), then [OSRM](https://project-osrm.org/) (project and [FOSSGIS](https://routing.openstreetmap.de/) servers) and [Valhalla](https://valhalla.github.io/valhalla/) |
 | Address search | [Photon](https://photon.komoot.io/) |
 | Gas stations | [Overpass API](https://wiki.openstreetmap.org/wiki/Overpass_API) (OpenStreetMap), several public servers |
 | Weather | [Open-Meteo](https://open-meteo.com/) |
@@ -68,7 +68,9 @@ They cover the route math, gap warnings, the stations picked around your target,
 
 ## Deployment
 
-GitHub Pages, deployed from the root of the `main` branch. `.nojekyll` turns off Jekyll processing.
+GitHub Pages, published by the Deploy workflow (`.github/workflows/deploy.yml`) on every push to `main`. It runs the tests, copies the site files, and writes the TomTom key from the repository secret `TOMTOM_KEY` into the published `js/config.js`. The key never goes in the repo; it is visible on the live site, so it's restricted to roadtripper.quest in TomTom's Key Management page. Without the secret, the site publishes with traffic off.
+
+Locally, `js/config.js` has no key, so routes use OSRM. To try TomTom locally, put a key in it temporarily and don't commit it.
 
 ## License
 

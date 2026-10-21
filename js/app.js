@@ -16,7 +16,8 @@
 //   weather-panel.js  the "Weather ahead" panel
 
 import { searchPlaces, reversePlace } from './geocode.js';
-import { getRoute } from './routing.js';
+import { getRoute, tomtomCopyright } from './routing.js';
+import { TOMTOM_KEY } from './config.js';
 import { getCurrentPosition } from './location.js';
 import { createMap, preloadMap } from './map.js';
 import { ACCENTS, CHOICES, loadSettings, saveSettings, applyAccent, nearestChoice } from './settings.js';
@@ -228,13 +229,22 @@ function renderSummary() {
   }
 }
 
+function providerNote(route) {
+  if (route.provider !== 'TomTom') return `Route from ${route.provider}. Drive times assume normal traffic.`;
+  const total = formatDuration(route.duration, { compact: true });
+  const delay = Math.round((route.trafficDelay || 0) / 60);
+  return delay >= 5
+    ? `Route and traffic from TomTom. The ${total} drive includes about ${formatDuration(delay * 60)} of traffic.`
+    : `Route and traffic from TomTom. The ${total} drive includes current traffic.`;
+}
+
 function renderRoute({ route, from, to, departAt }, { refit = true } = {}) {
   $('sum-to').textContent = to.label;
   $('sum-from').textContent = `From ${from.label}`;
   renderSummary();
-  $('sum-provider').textContent =
-    `Route from ${route.provider}. Drive times assume normal traffic.` +
+  $('sum-provider').textContent = providerNote(route) +
     (state.savedAt ? ` Saved trip from ${formatDayClock(state.savedAt)}.` : '');
+  showTomTomCopyright(route);
 
   $('trip-panel').hidden = true;
   $('route-panel').hidden = false;
@@ -283,8 +293,11 @@ async function plan(event) {
     setStatus('Looking up addresses…');
     const to = await toPromise;
 
+    const departValue = $('trip-depart').value;
+    const departAt = !$('depart-field').hidden && departValue ? new Date(departValue) : new Date();
+
     setStatus('Planning route…');
-    const route = await getRoute(from, to);
+    const route = await getRoute(from, to, departAt);
     if (fromNamed) {
       // Use the name if it's already back; don't hold up the route for it.
       const named = await Promise.race([fromNamed, new Promise((r) => setTimeout(r, 300))]);
@@ -297,11 +310,9 @@ async function plan(event) {
       });
     }
 
-    const departValue = $('trip-depart').value;
-    const departAt = !$('depart-field').hidden && departValue ? new Date(departValue) : new Date();
-
     state.route = route;
     state.trip = { route, from, to, departAt, fromHere };
+    if (route.provider === 'TomTom') attachStorableRoute(state.trip);
     state.savedAt = null;
     state.progress = null;
     renderRecent(addRecent(to));
@@ -325,9 +336,29 @@ async function plan(event) {
 
 // Change when the current trip leaves; everything timed (arrival, gas ETAs,
 // station hours, weather) follows.
-function setDeparture(date) {
+async function setDeparture(date) {
   if (!state.trip) return;
   state.trip.departAt = date;
+  // Traffic depends on when you leave: get a fresh TomTom route for the new time.
+  if (state.trip.route.provider === 'TomTom' && navigator.onLine !== false) {
+    const trip = state.trip;
+    setStatus('Updating traffic for the new departure time…');
+    try {
+      const route = await getRoute(trip.from, trip.to, date);
+      if (state.trip !== trip) return;   // a different trip was planned meanwhile
+      trip.route = route;
+      state.route = route;
+      if (route.provider === 'TomTom') attachStorableRoute(trip);
+      renderRoute(trip);
+      gas.setTrip(trip);
+      weather.setTrip(trip);
+      roads.setTrip(trip);
+    } catch {
+      // Keep the existing route; its times just shift to the new departure.
+    } finally {
+      setStatus('');
+    }
+  }
   $('trip-depart').value = toLocalInputValue(date);
   $('depart-field').hidden = false;
   $('depart-toggle').textContent = 'Leave now';
@@ -338,6 +369,22 @@ function setDeparture(date) {
   weather.refreshSettings();
   roads.refreshSettings();
   persistTrip();
+}
+
+// TomTom routes can't be stored, so fetch a normal-traffic route to save for
+// offline use instead. Runs in the background; nothing waits on it.
+function attachStorableRoute(trip) {
+  getRoute(trip.from, trip.to, trip.departAt, { noTraffic: true })
+    .then((r) => { trip.storableRoute = r; persistTrip(); })
+    .catch(() => { /* no offline copy for this trip */ });
+}
+
+// TomTom's copyright line, shown in the route note while a TomTom route is up.
+function showTomTomCopyright(route) {
+  if (route.provider !== 'TomTom') return;
+  tomtomCopyright().then((caption) => {
+    if (caption && state.trip?.route === route) $('sum-provider').textContent += ` ${caption}`;
+  });
 }
 
 // ---------- Saved trip and offline ----------
@@ -641,6 +688,7 @@ function init() {
   roads = createRoadsPanel({ settings, getMap: () => map });
   const restored = restoreTrip();
   setupOffline();
+  $('credit-tomtom').hidden = !TOMTOM_KEY;
   document.documentElement.dataset.ready = '1';
 
   // With the start screen up and nothing else going on, fetch the map library

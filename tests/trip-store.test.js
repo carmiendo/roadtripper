@@ -51,3 +51,13 @@ test('clearTrip removes it', () => {
   clearTrip();
   assert.equal(loadTrip(), null);
 });
+
+test('TomTom routes are never stored; the backup route is saved instead', () => {
+  const t = trip();
+  t.route = { ...t.route, provider: 'TomTom' };
+  assert.equal(saveTrip(t), false);
+  assert.equal(localStorage.getItem('roadtripper.lastTrip.v1'), null);
+  t.storableRoute = { ...straightRoute(50), provider: 'OSRM' };
+  assert.equal(saveTrip(t), true);
+  assert.equal(loadTrip().trip.route.provider, 'OSRM');
+});

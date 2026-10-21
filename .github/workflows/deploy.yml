@@ -1,0 +1,61 @@
+# Publishes the site to GitHub Pages on every push to main.
+# The TomTom key lives in the repository secret TOMTOM_KEY and is written into
+# js/config.js only in the published copy, so it never appears in the repo.
+# (It is still visible on the live site, so restrict the key to
+# roadtripper.quest in TomTom's Key Management page.)
+name: Deploy
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Run tests
+        run: npm test
+      - name: Copy site files
+        run: |
+          mkdir _site
+          cp -r index.html manifest.webmanifest sw.js CNAME .nojekyll css icons js _site/
+      - name: Add TomTom key
+        env:
+          TOMTOM_KEY: ${{ secrets.TOMTOM_KEY }}
+        run: |
+          if [ -z "$TOMTOM_KEY" ]; then
+            echo "No TOMTOM_KEY secret; publishing without traffic."
+            exit 0
+          fi
+          if ! printf '%s' "$TOMTOM_KEY" | grep -Eq '^[A-Za-z0-9]+$'; then
+            echo "TOMTOM_KEY should be letters and digits only." >&2
+            exit 1
+          fi
+          sed -i "s/^export const TOMTOM_KEY = '';$/export const TOMTOM_KEY = '$TOMTOM_KEY';/" _site/js/config.js
+          grep -q "TOMTOM_KEY = '.\+'" _site/js/config.js || { echo "Couldn't set the key in js/config.js." >&2; exit 1; }
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

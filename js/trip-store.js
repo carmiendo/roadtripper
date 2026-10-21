@@ -44,14 +44,18 @@ function packWeather(snapshot, arriveAt) {
  * @param {{weather?, detours?}} extras
  */
 export function saveTrip(trip, { weather, detours } = {}) {
-  const arriveAt = trip.departAt.getTime() + trip.route.duration * 1000;
+  // TomTom's terms don't allow storing its routes, so save the backup route
+  // from a free provider instead, or nothing if there isn't one yet.
+  const route = trip.route.provider === 'TomTom' ? trip.storableRoute : trip.route;
+  if (!route) { clearTrip(); return false; }
+  const arriveAt = trip.departAt.getTime() + route.duration * 1000;
   const data = {
     savedAt: Date.now(),
     from: trip.from,
     to: trip.to,
     fromHere: Boolean(trip.fromHere),
     departAt: trip.departAt.getTime(),
-    route: packRoute(trip.route),
+    route: packRoute(route),
     weather: packWeather(weather, arriveAt),
     detours: detours ? Object.fromEntries(detours) : {},
   };
