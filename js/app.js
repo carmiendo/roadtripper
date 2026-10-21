@@ -8,6 +8,8 @@
 //   location.js  browser geolocation
 //   settings.js  color, units, and other preferences (stored in the browser)
 //   recent.js    recent destinations (stored in the browser)
+//   trip-store.js  the last trip, saved so it reopens without a signal
+//   ../sw.js     service worker: keeps the app and viewed map tiles offline
 //   stations.js  Overpass gas stations and gap detection
 //   gas.js       the "Gas ahead" panel
 //   weather.js   Open-Meteo forecasts and NWS alerts
@@ -22,6 +24,7 @@ import { createGasPanel } from './gas.js';
 import { createWeatherPanel } from './weather-panel.js';
 import { projectToRoute, pointAlong } from './geo.js';
 import { loadRecent, addRecent } from './recent.js';
+import { saveTrip, loadTrip } from './trip-store.js';
 import { formatDistance, formatDuration, formatDayClock, toLocalInputValue } from './format.js';
 
 const settings = loadSettings();
@@ -32,7 +35,8 @@ const state = {
   to: null,
   here: null,   // last known current position, used to bias search
   route: null,
-  trip: null,   // {route, from, to, departAt} last planned trip
+  trip: null,   // {route, from, to, departAt, fromHere} current trip
+  savedAt: null,  // when the shown trip was saved, if it was reopened from storage
 };
 
 let map = null;
@@ -204,7 +208,8 @@ function renderRoute({ route, from, to, departAt }, { refit = true } = {}) {
   $('sum-duration').textContent = formatDuration(route.duration, { compact: true });
   $('sum-arrive').textContent = formatDayClock(arrive, departAt);
   $('sum-provider').textContent =
-    `Route from ${route.provider}. Drive times assume normal traffic.`;
+    `Route from ${route.provider}. Drive times assume normal traffic.` +
+    (state.savedAt ? ` Saved trip from ${formatDayClock(state.savedAt)}.` : '');
 
   $('trip-panel').hidden = true;
   $('route-panel').hidden = false;
@@ -226,6 +231,10 @@ async function plan(event) {
   }
 
   if (planning) return;
+  if (navigator.onLine === false) {
+    setStatus("You're offline. Planning a new route needs a connection.", 'error');
+    return;
+  }
   planning = true;
   button.disabled = true;
   try {
@@ -267,10 +276,12 @@ async function plan(event) {
     const departAt = !$('depart-field').hidden && departValue ? new Date(departValue) : new Date();
 
     state.route = route;
-    state.trip = { route, from, to, departAt };
+    state.trip = { route, from, to, departAt, fromHere };
+    state.savedAt = null;
     renderRecent(addRecent(to));
     renderRoute(state.trip);
     setStatus('');
+    persistTrip();
     gas.setProgress(null);
     gas.setTrip(state.trip);
     weather.setProgress(null);
@@ -281,6 +292,60 @@ async function plan(event) {
   } finally {
     planning = false;
     button.disabled = false;
+  }
+}
+
+// ---------- Saved trip and offline ----------
+
+let saveTimer = null;
+
+// Save the trip with what's loaded so far (debounced while things stream in).
+function persistTrip() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    if (!state.trip) return;
+    saveTrip(state.trip, { weather: weather.snapshot(), detours: gas.snapshot() });
+  }, 800);
+}
+
+// Reopen the last trip if it's still under way or was planned recently.
+function restoreTrip() {
+  const saved = loadTrip();
+  if (!saved) return false;
+  state.trip = saved.trip;
+  state.route = saved.trip.route;
+  state.savedAt = saved.savedAt;
+  renderRoute(state.trip);
+  gas.setTrip(state.trip, saved.detours);
+  weather.setTrip(state.trip, saved.weather);
+  if (saved.trip.fromHere) startTracking(null);   // follows you only if location is already allowed
+  return true;
+}
+
+function updateOfflineBanner() {
+  const banner = $('offline-banner');
+  const offline = navigator.onLine === false;
+  banner.hidden = !offline;
+  if (!offline) return;
+  banner.textContent = state.trip
+    ? "You're offline. Showing your saved trip; updates resume when you're back online."
+    : "You're offline. Planning a new route needs a connection.";
+}
+
+function setupOffline() {
+  window.addEventListener('offline', updateOfflineBanner);
+  window.addEventListener('online', () => {
+    updateOfflineBanner();
+    gas.retryFailed();
+    weather.refreshIfStale();
+    if (/offline/i.test($('status').textContent)) setStatus('');
+  });
+  updateOfflineBanner();
+
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('sw.js').catch(() => {
+      // Not available (private mode, unsupported); the app still works online.
+    });
   }
 }
 
@@ -451,9 +516,11 @@ function init() {
 
   warmUpPosition();
   renderRecent();
-  gas = createGasPanel({ settings, getMap: () => map });
-  weather = createWeatherPanel({ settings });
+  gas = createGasPanel({ settings, getMap: () => map, onChange: persistTrip });
+  weather = createWeatherPanel({ settings, onChange: persistTrip });
   setupSettings();
+  restoreTrip();
+  setupOffline();
 }
 
 init();

@@ -412,6 +412,18 @@ input[type="text"]:focus { border-color: var(--accent-ink); outline: none; }
   color: var(--muted);
 }
 
+/* ---------- Offline ---------- */
+
+.offline-banner {
+  margin: 0;
+  padding: 0.7rem 0.9rem;
+  font-weight: 600;
+  color: var(--fg);
+  background: var(--warn-soft);
+  border: 2px solid var(--warn);
+  border-radius: 10px;
+}
+
 /* ---------- Gas ---------- */
 
 .gas-target {

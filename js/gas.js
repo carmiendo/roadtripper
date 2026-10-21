@@ -17,7 +17,7 @@ const SEARCH_SPAN_M = 50 * 1609.344;   // look this far before and after the tar
 
 const $ = (id) => document.getElementById(id);
 
-export function createGasPanel({ settings, getMap }) {
+export function createGasPanel({ settings, getMap, onChange }) {
   const el = {
     target: $('gas-target'),
     targetUnit: $('gas-target-unit'),
@@ -118,6 +118,7 @@ export function createGasPanel({ settings, getMap }) {
         if (generation === state.generation) spans.forEach(({ st }) => state.detours.set(st.id, 'error'));
       }
       render();
+      onChange?.();
       if (detourQueue.length) await new Promise((r) => setTimeout(r, DETOUR_SPACING_MS));
     }
     detourRunning = false;
@@ -259,11 +260,17 @@ export function createGasPanel({ settings, getMap }) {
     let retry = false;
     if (load.failed && !load.loading) {
       retry = true;
-      if (state.stations?.length) text = "Part of this stretch couldn't be loaded. The station servers are busy.";
+      if (state.stations?.length) {
+        text = navigator.onLine === false
+          ? "You're offline. Part of this stretch will load when you have a connection."
+          : "Part of this stretch couldn't be loaded. The station servers are busy.";
+      }
     } else if (load.loading && state.stations?.length) {
       text = 'Loading more stations…';
     } else if (load.stale) {
-      text = "Showing saved stations from an earlier visit. The station servers didn't answer.";
+      text = navigator.onLine === false
+        ? 'Showing stations saved on an earlier visit.'
+        : "Showing saved stations from an earlier visit. The station servers didn't answer.";
     }
     if (!text && !retry) { el.status.hidden = true; return; }
     if (text) {
@@ -307,7 +314,9 @@ export function createGasPanel({ settings, getMap }) {
       el.gaps.replaceChildren();
       el.list.replaceChildren();
       el.empty.textContent = state.load?.failed && !state.load.loading
-        ? "Couldn't load gas stations. The station servers are busy right now."
+        ? (navigator.onLine === false
+          ? "You're offline. Gas stations will load when you have a connection."
+          : "Couldn't load gas stations. The station servers are busy right now.")
         : 'Finding gas stations…';
       el.empty.hidden = false;
       return;
@@ -395,14 +404,18 @@ export function createGasPanel({ settings, getMap }) {
 
   // ---------- Public ----------
 
-  function setTrip(trip) {
+  /**
+   * @param {object} trip
+   * @param {Map} [savedDetours] detour times saved earlier for this trip
+   */
+  function setTrip(trip, savedDetours = null) {
     state.generation += 1;
     const generation = state.generation;
     state.trip = trip;
     state.stations = null;
     state.load = null;
     state.shownKey = '';
-    state.detours = new Map();
+    state.detours = new Map(savedDetours ?? []);
     detourQueue = [];
     loader?.cancel();
     loader = createStationLoader(trip.route, MAX_STATION_RADIUS, (update) => {
@@ -432,5 +445,18 @@ export function createGasPanel({ settings, getMap }) {
   renderTarget();
   render();
 
-  return { setTrip, setProgress, refreshSettings };
+  // Called when the connection comes back: retry stations and detours that failed.
+  function retryFailed() {
+    if (!state.trip) return;
+    loader?.retry();
+    for (const [id, d] of state.detours) if (d === 'error') state.detours.delete(id);
+    render();
+  }
+
+  // Detour times worth saving (finished measurements only).
+  function snapshot() {
+    return new Map([...state.detours].filter(([, d]) => typeof d === 'object'));
+  }
+
+  return { setTrip, setProgress, refreshSettings, retryFailed, snapshot };
 }

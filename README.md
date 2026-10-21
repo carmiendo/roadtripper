@@ -21,7 +21,9 @@ Routing, gas stations ahead, and weather along the route are working. Next: phon
 6. Recent destinations and a results-first layout for use on the road
 7. Installable to the home screen (Chrome: menu → Add to Home screen / Install app)
 
-Planned: offline caching of the last route and forecasts, and traffic-aware drive times.
+8. Works offline: reopens your last trip (route, stations, detours, forecasts) and map areas you viewed
+
+Planned: traffic-aware drive times.
 
 ## Data sources
 

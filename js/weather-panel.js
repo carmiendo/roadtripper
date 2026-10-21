@@ -62,7 +62,7 @@ const HAZARD_LABEL = {
   fog: 'Low visibility',
 };
 
-export function createWeatherPanel({ settings }) {
+export function createWeatherPanel({ settings, onChange }) {
   const el = {
     context: $('wx-context'),
     headsup: $('wx-headsup'),
@@ -299,9 +299,12 @@ export function createWeatherPanel({ settings }) {
       };
     });
 
-    el.context.textContent = state.progress?.live
-      ? 'Forecast for when you reach each point, from where you are now. Tap a row for the next few hours.'
-      : `Forecast for when you reach each point, leaving ${formatDayClock(state.trip.departAt)}. Tap a row for the next few hours.`;
+    const base = state.progress?.live
+      ? 'Forecast for when you reach each point, from where you are now.'
+      : `Forecast for when you reach each point, leaving ${formatDayClock(state.trip.departAt)}.`;
+    const age = Date.now() - state.fetchedAt;
+    const asOf = age > 30 * 60 * 1000 ? ` Forecast from ${formatDayClock(new Date(state.fetchedAt))}.` : '';
+    el.context.textContent = `${base}${asOf} Tap a row for the next few hours.`;
     el.headsup.replaceChildren(...headsUp(rows));
     const alerts = state.alerts?.alerts ?? [];
     el.alerts.replaceChildren(...alerts.map(alertItem));
@@ -323,6 +326,7 @@ export function createWeatherPanel({ settings }) {
         if (generation !== state.generation) return;
         state.alerts = alerts;
         render();
+        onChange?.();
       });
 
     try {
@@ -332,9 +336,14 @@ export function createWeatherPanel({ settings }) {
       state.fetchedAt = Date.now();
       state.error = null;
       render();
+      onChange?.();
     } catch {
       if (generation !== state.generation) return;
-      if (!state.points) state.error = "Couldn't load forecasts. Check your connection and try again.";
+      if (!state.points) {
+        state.error = navigator.onLine === false
+          ? "You're offline. Forecasts will load when you have a connection."
+          : "Couldn't load forecasts. Check your connection and try again.";
+      }
       render();
       return;
     }
@@ -345,20 +354,36 @@ export function createWeatherPanel({ settings }) {
       if (generation !== state.generation) return;
       unnamed[i].name = name;
       // Batch re-renders while names stream in.
-      if (!pending) pending = setTimeout(() => { pending = null; render(); }, 150);
+      if (!pending) pending = setTimeout(() => { pending = null; render(); onChange?.(); }, 150);
     });
     await alertsDone;
   }
 
-  function setTrip(trip) {
+  /**
+   * @param {object} trip
+   * @param {{points, alerts, fetchedAt}|null} [saved] a forecast saved earlier for this trip
+   */
+  function setTrip(trip, saved = null) {
     state.generation += 1;
     state.trip = trip;
-    state.points = null;
-    state.alerts = null;
+    state.points = saved?.points ?? null;
+    state.alerts = saved?.alerts ?? null;
+    state.fetchedAt = saved?.fetchedAt ?? 0;
     state.error = null;
     state.expanded = new Set();
     render();
-    load(state.generation);
+    if (!state.points || isStale()) load(state.generation);
+  }
+
+  const isStale = () => Date.now() - state.fetchedAt > REFRESH_MS;
+
+  // Called when the connection comes back.
+  function refreshIfStale() {
+    if (state.trip && (!state.points || isStale())) load(state.generation);
+  }
+
+  function snapshot() {
+    return state.points ? { points: state.points, alerts: state.alerts, fetchedAt: state.fetchedAt } : null;
   }
 
   function setProgress(progress) {
@@ -376,5 +401,5 @@ export function createWeatherPanel({ settings }) {
   });
 
   render();
-  return { setTrip, setProgress, refreshSettings: render };
+  return { setTrip, setProgress, refreshSettings: render, refreshIfStale, snapshot };
 }
