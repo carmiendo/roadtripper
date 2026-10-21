@@ -23,7 +23,7 @@ import { ACCENTS, CHOICES, loadSettings, saveSettings, applyAccent, nearestChoic
 import { createGasPanel } from './gas.js';
 import { createWeatherPanel } from './weather-panel.js';
 import { createRoadsPanel } from './roads-panel.js';
-import { projectToRoute, pointAlong } from './geo.js';
+import { projectToRoute, pointAlong, timeAlong } from './geo.js';
 import { loadRecent, addRecent } from './recent.js';
 import { saveTrip, loadTrip } from './trip-store.js';
 import { getProblems, clearProblems, onProblemsChange, problemsAsText } from './problems.js';
@@ -38,6 +38,7 @@ const state = {
   here: null,   // last known current position, used to bias search
   route: null,
   trip: null,   // {route, from, to, departAt, fromHere} current trip
+  progress: null, // {along, live} while you're on the route
   savedAt: null,  // when the shown trip was saved, if it was reopened from storage
 };
 
@@ -201,15 +202,36 @@ function renderRecent(list = loadRecent()) {
 
 // ---------- Planning ----------
 
-function renderRoute({ route, from, to, departAt }, { refit = true } = {}) {
+// Distance, drive time, and arrival. While you're driving the route, these
+// count down from where you are instead of from the start.
+function renderSummary() {
+  if (!state.trip) return;
+  const { route, departAt } = state.trip;
   const unit = settings.distanceUnit;
-  const arrive = new Date(departAt.getTime() + route.duration * 1000);
+  const p = state.progress;
+  if (p?.live) {
+    const left = Math.max(0, route.cumDist[route.cumDist.length - 1] - p.along);
+    const secondsLeft = Math.max(0, route.duration - timeAlong(route, p.along));
+    const arrive = new Date(Date.now() + secondsLeft * 1000);
+    $('sum-distance-label').textContent = 'To go';
+    $('sum-duration-label').textContent = 'Time left';
+    $('sum-distance').textContent = formatDistance(left, unit);
+    $('sum-duration').textContent = formatDuration(secondsLeft, { compact: true });
+    $('sum-arrive').textContent = formatDayClock(arrive);
+  } else {
+    const arrive = new Date(departAt.getTime() + route.duration * 1000);
+    $('sum-distance-label').textContent = 'Distance';
+    $('sum-duration-label').textContent = 'Drive';
+    $('sum-distance').textContent = formatDistance(route.distance, unit);
+    $('sum-duration').textContent = formatDuration(route.duration, { compact: true });
+    $('sum-arrive').textContent = formatDayClock(arrive, departAt);
+  }
+}
 
+function renderRoute({ route, from, to, departAt }, { refit = true } = {}) {
   $('sum-to').textContent = to.label;
   $('sum-from').textContent = `From ${from.label}`;
-  $('sum-distance').textContent = formatDistance(route.distance, unit);
-  $('sum-duration').textContent = formatDuration(route.duration, { compact: true });
-  $('sum-arrive').textContent = formatDayClock(arrive, departAt);
+  renderSummary();
   $('sum-provider').textContent =
     `Route from ${route.provider}. Drive times assume normal traffic.` +
     (state.savedAt ? ` Saved trip from ${formatDayClock(state.savedAt)}.` : '');
@@ -281,6 +303,7 @@ async function plan(event) {
     state.route = route;
     state.trip = { route, from, to, departAt, fromHere };
     state.savedAt = null;
+    state.progress = null;
     renderRecent(addRecent(to));
     renderRoute(state.trip);
     setStatus('');
@@ -337,6 +360,7 @@ function restoreTrip() {
   state.trip = saved.trip;
   state.route = saved.trip.route;
   state.savedAt = saved.savedAt;
+  state.progress = null;
   renderRoute(state.trip);
   gas.setTrip(state.trip, saved.detours);
   weather.setTrip(state.trip, saved.weather);
@@ -403,6 +427,8 @@ function updateProgress(pos) {
   const snap = projectToRoute(route, [pos.lon, pos.lat]);
   const onRoute = snap.offRoute <= ON_ROUTE_M;
   const progress = onRoute ? { along: snap.along, live: true } : null;
+  state.progress = progress;
+  renderSummary();
   gas.setProgress(progress);
   weather.setProgress(progress);
   roads.setProgress(progress);
