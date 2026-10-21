@@ -7,7 +7,7 @@
 // shows up the next time you open the app. Bump VERSION only when the list
 // of cached files changes or a cache's format changes.
 
-const VERSION = 'v1';
+const VERSION = 'v2';
 const SHELL_CACHE = `shell-${VERSION}`;   // the app's own files
 const LIB_CACHE = `libs-${VERSION}`;      // pinned libraries and map style files
 const TILE_CACHE = `tiles-${VERSION}`;    // map tiles you've viewed
@@ -34,9 +34,9 @@ const SHELL = [
   'js/weather-panel.js',
   'js/weather.js',
   'icons/favicon.svg',
-  'icons/favicon-32.png',
-  'icons/icon-192.png',
-  'icons/icon-maskable-192.png',
+  'icons/favicon-32-v2.png',
+  'icons/icon-192-v2.png',
+  'icons/icon-maskable-192-v2.png',
 ];
 const LIBS = [
   'https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js',
