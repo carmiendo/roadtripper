@@ -36,6 +36,16 @@ export function formatClock(date) {
   return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 }
 
+/**
+ * Clock time at a place with the given UTC offset (seconds), like "6 AM" or
+ * "9:30 PM". Falls back to this device's time zone when the offset is unknown.
+ */
+export function formatClockAt(date, offsetSec) {
+  if (offsetSec == null) return formatClock(date).replace(':00', '');
+  const shifted = new Date(date.getTime() + offsetSec * 1000);
+  return shifted.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', timeZone: 'UTC' }).replace(':00', '');
+}
+
 export function formatDayClock(date, reference = new Date()) {
   const sameDay = date.toDateString() === reference.toDateString();
   const time = formatClock(date);

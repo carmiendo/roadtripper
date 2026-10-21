@@ -577,8 +577,15 @@ function init() {
 
   warmUpPosition();
   renderRecent();
-  gas = createGasPanel({ settings, getMap: () => map, onChange: persistTrip });
-  weather = createWeatherPanel({ settings, onChange: persistTrip });
+  gas = createGasPanel({
+    settings, getMap: () => map, onChange: persistTrip,
+    utcOffsetAt: (along) => weather?.utcOffsetAt(along) ?? null,
+  });
+  weather = createWeatherPanel({
+    settings,
+    // New forecasts can bring time zones the station hours depend on.
+    onChange: () => { persistTrip(); gas.refreshSettings(); },
+  });
   setupSettings();
   const restored = restoreTrip();
   setupOffline();

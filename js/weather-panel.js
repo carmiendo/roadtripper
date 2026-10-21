@@ -330,9 +330,14 @@ export function createWeatherPanel({ settings, onChange }) {
       });
 
     try {
-      const hourlies = await fetchForecasts(points);
+      const forecasts = await fetchForecasts(points);
       if (generation !== state.generation) return;
-      state.points = points.map((p, i) => ({ ...p, name: keepNames.get(p.along.toFixed(0)) ?? null, hourly: hourlies[i] }));
+      state.points = points.map((p, i) => ({
+        ...p,
+        name: keepNames.get(p.along.toFixed(0)) ?? null,
+        hourly: forecasts[i].hourly,
+        utcOffset: forecasts[i].utcOffset,
+      }));
       state.fetchedAt = Date.now();
       state.error = null;
       render();
@@ -401,5 +406,15 @@ export function createWeatherPanel({ settings, onChange }) {
   });
 
   render();
-  return { setTrip, setProgress, refreshSettings: render, refreshIfStale, snapshot };
+  /** UTC offset (seconds) at a distance along the route, from the nearest forecast point. */
+  function utcOffsetAt(along) {
+    let best = null;
+    for (const p of state.points || []) {
+      if (p.utcOffset == null) continue;
+      if (!best || Math.abs(p.along - along) < Math.abs(best.along - along)) best = p;
+    }
+    return best ? best.utcOffset : null;
+  }
+
+  return { setTrip, setProgress, refreshSettings: render, refreshIfStale, snapshot, utcOffsetAt };
 }

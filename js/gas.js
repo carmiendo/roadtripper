@@ -2,11 +2,12 @@
 // Copyright (C) 2026 Carmen Jackson. Licensed under the GNU GPL v3.0 (see LICENSE).
 
 import { createStationLoader, findGaps, pickAroundTarget, nextStation } from './stations.js';
+import { parseHours, hoursStatus } from './hours.js';
 import { getDetourLengths } from './routing.js';
 import { pointAlong, timeAlong, sliceAlong } from './geo.js';
 import { MAX_STATION_RADIUS, saveSettings } from './settings.js';
 import {
-  formatDistance, formatDuration, formatDayClock, formatMarker,
+  formatDistance, formatDuration, formatDayClock, formatMarker, formatClockAt,
   toUnit, fromUnit,
 } from './format.js';
 
@@ -18,7 +19,7 @@ const NEAR_M = 15 * 1609.344;          // while driving, also load this far ahea
 
 const $ = (id) => document.getElementById(id);
 
-export function createGasPanel({ settings, getMap, onChange }) {
+export function createGasPanel({ settings, getMap, onChange, utcOffsetAt = () => null }) {
   const el = {
     target: $('gas-target'),
     targetUnit: $('gas-target-unit'),
@@ -128,6 +129,39 @@ export function createGasPanel({ settings, getMap, onChange }) {
 
   // ---------- Rendering ----------
 
+  // ---------- Opening hours ----------
+
+  const parsedHours = new Map();   // station id -> parsed hours (or null)
+
+  function offsetFor(station) {
+    const known = utcOffsetAt(station.along);
+    // Without a forecast yet, assume this device's time zone.
+    return known ?? -new Date().getTimezoneOffset() * 60;
+  }
+
+  /** Open or closed when you'd get there: {open, changesAt} or null if hours are unknown. */
+  function openAtArrival(station) {
+    if (!station.hours) return null;
+    if (!parsedHours.has(station.id)) parsedHours.set(station.id, parseHours(station.hours));
+    return hoursStatus(parsedHours.get(station.id), arrivalAt(station.along), offsetFor(station));
+  }
+
+  function hoursText(station) {
+    const st = openAtArrival(station);
+    if (!st || station.open24) return null;
+    const offset = offsetFor(station);
+    const arrive = arrivalAt(station.along);
+    if (!st.open) {
+      return { warn: true, text: st.changesAt ? `Closed when you arrive · opens ${formatClockAt(st.changesAt, offset)}` : 'Closed when you arrive' };
+    }
+    if (!st.changesAt) return null;
+    const minutesLeft = Math.round((st.changesAt - arrive) / 60000);
+    if (minutesLeft <= 60) {
+      return { warn: true, text: `Closes ${formatClockAt(st.changesAt, offset)}, ${minutesLeft} min after you arrive` };
+    }
+    return { warn: false, text: `open till ${formatClockAt(st.changesAt, offset)}` };
+  }
+
   function arrivalAt(along) {
     const { route, departAt } = state.trip;
     const p = state.progress;
@@ -173,12 +207,21 @@ export function createGasPanel({ settings, getMap, onChange }) {
     const sub = document.createElement('p');
     sub.className = 'station-sub';
     const where = [station.subname, station.place].filter(Boolean).join(', ');
-    sub.textContent = [where, `ETA ${formatDayClock(arrivalAt(station.along), state.trip.departAt)}`]
+    const hrs = hoursText(station);
+    sub.textContent = [where, `ETA ${formatDayClock(arrivalAt(station.along), state.trip.departAt)}`,
+      hrs && !hrs.warn ? hrs.text : null]
       .filter(Boolean).join(' · ');
     const det = document.createElement('p');
     det.className = 'station-detour';
     det.textContent = detourText(station);
     main.append(name, sub, det);
+    if (hrs?.warn) {
+      const h = document.createElement('p');
+      h.className = 'station-hours-warn';
+      h.textContent = hrs.text;
+      main.append(h);
+      if (/^Closed/.test(hrs.text)) li.classList.add('station--closed');
+    }
     if (gapAfter) {
       const warn = document.createElement('p');
       warn.className = 'station-warn';
@@ -382,6 +425,8 @@ export function createGasPanel({ settings, getMap, onChange }) {
     const { route } = state.trip;
     const from = state.progress?.along ?? 0;
     const near = state.stations.filter((s) => s.offRoute <= settings.maxOffRoute);
+    // Stations known to be closed when you'd get there don't count for gaps or "next gas".
+    const usable = near.filter((s) => openAtArrival(s)?.open !== false);
 
     // Context line
     const fromText = state.progress?.live
@@ -394,10 +439,10 @@ export function createGasPanel({ settings, getMap, onChange }) {
 
     // Gaps, only within the searched range and only once it's fully loaded
     const gaps = state.load.complete
-      ? findGaps(near, route, settings.gapThreshold, rStart, rEnd, { leading: rStart <= from + 1 }).slice(0, 3)
+      ? findGaps(usable, route, settings.gapThreshold, rStart, rEnd, { leading: rStart <= from + 1 }).slice(0, 3)
       : [];
     el.gaps.replaceChildren(...gaps.map((g) => gapItem(g, from)));
-    renderNext(near, gaps, from);
+    renderNext(usable, gaps, from);
     const gapAfterStation = new Map(gaps.filter((g) => g.lastStation).map((g) => [g.lastStation.id, g]));
 
     // Stations in the window

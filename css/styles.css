@@ -561,6 +561,9 @@ input[type="text"]:focus { border-color: var(--accent-ink); outline: none; }
 }
 .station-sub, .station-detour { margin: 0.05rem 0 0; font-size: 0.85rem; line-height: 1.35; color: var(--muted); }
 .station-detour { color: var(--fg); }
+.station-hours-warn { margin: 0.2rem 0 0; font-size: 0.85rem; font-weight: 700; color: var(--warn); }
+.station--closed .station-name, .station--closed .station-dist strong { color: var(--muted); }
+.station--closed .station-num { background: var(--muted); }
 .station-warn { margin: 0.2rem 0 0; font-size: 0.85rem; font-weight: 700; color: var(--warn); }
 .station-dist {
   display: grid;

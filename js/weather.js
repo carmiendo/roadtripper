@@ -78,12 +78,12 @@ export async function fetchForecasts(points) {
     longitude: points.map((p) => p.lon.toFixed(3)).join(','),
     hourly: HOURLY.join(','),
     timeformat: 'unixtime',
-    timezone: 'GMT',
+    timezone: 'auto',   // also tells us each point's UTC offset, for station hours
     forecast_days: String(FORECAST_DAYS),
   });
   const data = await fetchJson(`${OPEN_METEO}?${params}`);
   const list = Array.isArray(data) ? data : [data];
-  return list.map((d) => d.hourly);
+  return list.map((d) => ({ hourly: d.hourly, utcOffset: d.utc_offset_seconds ?? null }));
 }
 
 /** The hourly values at the hour closest to `date`, or null if outside the forecast. */
