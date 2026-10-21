@@ -29,6 +29,8 @@ const SHELL = [
   'js/map.js',
   'js/problems.js',
   'js/recent.js',
+  'js/roads.js',
+  'js/roads-panel.js',
   'js/routing.js',
   'js/settings.js',
   'js/stations.js',

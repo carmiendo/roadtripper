@@ -31,6 +31,8 @@
   <link rel="modulepreload" href="js/map.js">
   <link rel="modulepreload" href="js/problems.js">
   <link rel="modulepreload" href="js/recent.js">
+  <link rel="modulepreload" href="js/roads.js">
+  <link rel="modulepreload" href="js/roads-panel.js">
   <link rel="modulepreload" href="js/routing.js">
   <link rel="modulepreload" href="js/settings.js">
   <link rel="modulepreload" href="js/stations.js">
@@ -126,6 +128,13 @@
       </dl>
       <div id="map" class="map" role="region" aria-label="Route map"></div>
       <p class="fineprint" id="sum-provider"></p>
+    </section>
+
+    <section class="panel" id="roads-panel" aria-labelledby="roads-heading" hidden>
+      <h2 id="roads-heading">Road conditions</h2>
+      <p class="roads-summary" id="roads-summary" role="status"></p>
+      <ul class="road-alerts" id="roads-list" aria-label="Chain controls and closures ahead"></ul>
+      <p class="fineprint" id="roads-status"></p>
     </section>
 
     <section class="panel" id="gas-panel" aria-labelledby="gas-heading" hidden>
@@ -226,6 +235,7 @@
         Map tiles by <a href="https://openfreemap.org/" target="_blank" rel="noopener">OpenFreeMap</a>.
         Weather by <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo.com</a> (CC BY 4.0)
         and the <a href="https://www.weather.gov/" target="_blank" rel="noopener">National Weather Service</a>.
+        Chain controls from <a href="https://cwwp2.dot.ca.gov/" target="_blank" rel="noopener">Caltrans</a>.
         App icon from <a href="https://github.com/jdecked/twemoji" target="_blank" rel="noopener">Twemoji</a>
         (<a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>).
       </p>

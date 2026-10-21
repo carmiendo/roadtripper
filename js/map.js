@@ -48,7 +48,7 @@ export function preloadMap() {
   loadMapLibre().catch(() => {});
 }
 
-const METHODS = ['showRoute', 'clear', 'refreshColors', 'showStations', 'showGaps', 'showPosition', 'follow', 'stopFollowing'];
+const METHODS = ['showRoute', 'clear', 'refreshColors', 'showStations', 'showGaps', 'showPosition', 'follow', 'stopFollowing', 'showRoadAlerts'];
 
 /**
  * A map in `container`. Returns right away; calls made before the library
@@ -251,6 +251,21 @@ function createMapNow(container) {
     recenterButton.hidden = !lastPosition;
   }
 
+  let roadMarkers = [];
+
+  /** Chain control and closure points: [{coord, short, level}]. */
+  async function showRoadAlerts(list) {
+    await ready;
+    roadMarkers.forEach((m) => m.remove());
+    roadMarkers = list.map(({ coord, short, level }) => {
+      const el = document.createElement('div');
+      el.className = `map-road map-road--${level}`;
+      el.textContent = short;
+      el.setAttribute('aria-hidden', 'true');
+      return new maplibregl.Marker({ element: el }).setLngLat(coord).addTo(map);
+    });
+  }
+
   /** Highlight stretches with no gas. */
   async function showGaps(lines) {
     await ready;
@@ -293,5 +308,5 @@ function createMapNow(container) {
     }
   }
 
-  return { showRoute, clear, refreshColors, showStations, showGaps, showPosition, follow, stopFollowing };
+  return { showRoute, clear, refreshColors, showStations, showGaps, showPosition, follow, stopFollowing, showRoadAlerts };
 }

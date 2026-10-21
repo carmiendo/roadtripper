@@ -22,6 +22,7 @@ import { createMap, preloadMap } from './map.js';
 import { ACCENTS, CHOICES, loadSettings, saveSettings, applyAccent, nearestChoice } from './settings.js';
 import { createGasPanel } from './gas.js';
 import { createWeatherPanel } from './weather-panel.js';
+import { createRoadsPanel } from './roads-panel.js';
 import { projectToRoute, pointAlong } from './geo.js';
 import { loadRecent, addRecent } from './recent.js';
 import { saveTrip, loadTrip } from './trip-store.js';
@@ -44,6 +45,7 @@ let map = null;
 let planning = false;
 let gas = null;
 let weather = null;
+let roads = null;
 let watchId = null;
 
 const ON_ROUTE_M = 1000;   // within 1 km of the route counts as being on it
@@ -287,6 +289,8 @@ async function plan(event) {
     gas.setTrip(state.trip);
     weather.setProgress(null);
     weather.setTrip(state.trip);
+    roads.setProgress(null);
+    roads.setTrip(state.trip);
     startTracking(fromHere ? from : null);
   } catch (err) {
     setStatus(err.message, 'error');
@@ -309,6 +313,7 @@ function setDeparture(date) {
   renderRoute(state.trip, { refit: false });
   gas.refreshSettings();
   weather.refreshSettings();
+  roads.refreshSettings();
   persistTrip();
 }
 
@@ -335,6 +340,7 @@ function restoreTrip() {
   renderRoute(state.trip);
   gas.setTrip(state.trip, saved.detours);
   weather.setTrip(state.trip, saved.weather);
+  roads.setTrip(state.trip);
   if (saved.trip.fromHere) startTracking(null);   // follows you only if location is already allowed
   return true;
 }
@@ -399,6 +405,7 @@ function updateProgress(pos) {
   const progress = onRoute ? { along: snap.along, live: true } : null;
   gas.setProgress(progress);
   weather.setProgress(progress);
+  roads.setProgress(progress);
   const here = onRoute ? pointAlong(route, snap.along) : null;
   map?.showPosition(here);
   if (here) map?.follow(here);
@@ -504,6 +511,7 @@ function setupSettings() {
     if (name === 'distanceUnit' && state.trip) renderRoute(state.trip, { refit: false });
     gas.refreshSettings();
     weather.refreshSettings();
+    roads.refreshSettings();
   });
 
   $('open-settings').addEventListener('click', () => {
@@ -604,6 +612,7 @@ function init() {
     onChooseDeparture: setDeparture,
   });
   setupSettings();
+  roads = createRoadsPanel({ settings, getMap: () => map });
   const restored = restoreTrip();
   setupOffline();
   document.documentElement.dataset.ready = '1';

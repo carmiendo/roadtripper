@@ -16,6 +16,7 @@
   --warn-line: #d97706;   /* gap stretches on the map (map stays light in both themes) */
   --danger: #b42318;      /* severe weather alerts */
   --danger-soft: #fdecea;
+  --danger-fg: #ffffff;
   --wx-sun: #d58a00;
   --wx-rain: #2563c9;
   --wx-snow: #3b8fb8;
@@ -49,6 +50,7 @@
     --warn-fg: #1d1b1e;
     --danger: #ff8a80;
     --danger-soft: #3a1514;
+    --danger-fg: #1d1b1e;
     --wx-sun: #ffc24d;
     --wx-rain: #79a8ff;
     --wx-snow: #9ad4f0;
@@ -432,6 +434,56 @@ input[type="text"]:focus { border-color: var(--accent-ink); outline: none; }
   border: 2px solid var(--warn);
   border-radius: 10px;
 }
+
+/* ---------- Road conditions ---------- */
+
+.roads-summary { margin: 0 0 0.6rem; font-weight: 700; }
+.roads-summary:empty { display: none; }
+.roads-summary--closed, .roads-summary--held { color: var(--danger); }
+.roads-summary--chains { color: var(--warn); }
+.road-alerts { margin: 0; padding: 0; list-style: none; display: grid; gap: 0.5rem; }
+.road-alerts:empty { display: none; }
+.road-alert {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 0.7rem;
+  align-items: start;
+  padding: 0.65rem 0.75rem;
+  border: 2px solid var(--warn);
+  border-radius: 10px;
+  background: var(--warn-soft);
+}
+.road-alert--closed, .road-alert--held { border-color: var(--danger); background: var(--danger-soft); }
+.road-alert--caution { border-color: var(--border); background: var(--surface); }
+.road-badge {
+  display: grid;
+  place-items: center;
+  min-width: 3rem;
+  min-height: 2.2rem;
+  padding: 0 0.4rem;
+  font-weight: 800;
+  border-radius: 8px;
+  color: var(--warn-fg);
+  background: var(--warn);
+}
+.road-alert--closed .road-badge, .road-alert--held .road-badge { color: var(--danger-fg); background: var(--danger); }
+.road-alert--caution .road-badge { color: var(--fg); background: var(--bg); }
+.road-main { min-width: 0; }
+.road-title { margin: 0; font-weight: 700; line-height: 1.3; }
+.road-where { margin: 0.1rem 0 0; font-size: 0.9rem; }
+.road-since { margin: 0.2rem 0 0; font-size: 0.82rem; color: var(--muted); }
+
+.map-road {
+  padding: 2px 6px;
+  font: 800 12px/1.3 var(--font-body);
+  color: #fff;
+  background: #a15c07;
+  border: 2px solid #fff;
+  border-radius: 6px;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.4);
+}
+.map-road--closed, .map-road--held { background: #b42318; }
+.map-road--caution { background: #625e66; }
 
 /* ---------- Next gas bar (while driving) ---------- */
 
