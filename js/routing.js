@@ -14,6 +14,7 @@
 //   provider  string         'OSRM' | 'Valhalla'
 
 import { haversine, decodePolyline } from './geo.js';
+import { recordProblem } from './problems.js';
 
 // Two public OSRM servers with the same API: the project's demo server and the
 // OpenStreetMap community's (FOSSGIS) server that openstreetmap.org uses.
@@ -31,6 +32,10 @@ async function fetchJson(url, options = {}) {
     const res = await fetch(url, { ...options, signal: ctrl.signal });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return await res.json();
+  } catch (err) {
+    const service = /\/table\/|sources_to_targets/.test(url) ? 'Detours' : 'Routing';
+    recordProblem(service, url, err);
+    throw err;
   } finally {
     clearTimeout(timer);
   }

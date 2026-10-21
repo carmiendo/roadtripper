@@ -5,6 +5,7 @@
 
 import { pointAlong, timeAlong } from './geo.js';
 import { reversePlace } from './geocode.js';
+import { recordProblem } from './problems.js';
 
 const OPEN_METEO = 'https://api.open-meteo.com/v1/forecast';
 const NWS = 'https://api.weather.gov';
@@ -29,6 +30,13 @@ async function fetchJson(url, options = {}) {
       throw err;
     }
     return await res.json();
+  } catch (err) {
+    const alerts = url.startsWith(NWS);
+    // NWS answers 400/404 for points outside the US; that's expected, not a problem.
+    if (!(alerts && (err.status === 400 || err.status === 404))) {
+      recordProblem(alerts ? 'Weather alerts' : 'Weather', url, err);
+    }
+    throw err;
   } finally {
     clearTimeout(timer);
   }

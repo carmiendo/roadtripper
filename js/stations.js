@@ -11,6 +11,7 @@
 //   offRoute  straight-line meters from the route
 
 import { createRouteIndex } from './geo.js';
+import { recordProblem } from './problems.js';
 
 // Public Overpass servers (see wiki.openstreetmap.org/wiki/Overpass_API#Public_Overpass_API_instances).
 const ENDPOINTS = [
@@ -70,7 +71,8 @@ function overpass(query) {
           resolve(data);
         })
         .catch((err) => {
-          if (done) return;
+          if (done) return;   // another server already answered; this one was cancelled
+          recordProblem('Gas stations', ENDPOINTS[idx], err);
           errors.push(err.name === 'AbortError' ? 'timed out' : err.message);
           finished++;
           if (started < order.length) startNext();

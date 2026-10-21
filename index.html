@@ -171,7 +171,18 @@
         <div class="segmented" id="gap-options" aria-labelledby="gap-label"></div>
       </fieldset>
 
-      <p class="fineprint">Settings are saved in this browser only.</p>
+      <fieldset>
+        <legend>Recent problems</legend>
+        <p class="setting-label" id="problems-summary">No problems recorded.</p>
+        <ol class="problems" id="problems-list"></ol>
+        <div class="problems-actions">
+          <button type="button" class="secondary-button" id="problems-copy">Copy for a bug report</button>
+          <button type="button" class="link-button" id="problems-clear">Clear</button>
+        </div>
+        <textarea class="problems-text" id="problems-text" readonly hidden aria-label="Problem log"></textarea>
+      </fieldset>
+
+      <p class="fineprint">Settings and the problem log are saved in this browser only.</p>
     </form>
   </dialog>
 

@@ -25,6 +25,7 @@ import { createWeatherPanel } from './weather-panel.js';
 import { projectToRoute, pointAlong } from './geo.js';
 import { loadRecent, addRecent } from './recent.js';
 import { saveTrip, loadTrip } from './trip-store.js';
+import { getProblems, clearProblems, onProblemsChange, problemsAsText } from './problems.js';
 import { formatDistance, formatDuration, formatDayClock, toLocalInputValue } from './format.js';
 
 const settings = loadSettings();
@@ -480,7 +481,56 @@ function setupSettings() {
 
   $('open-settings').addEventListener('click', () => {
     sync();
+    renderProblems();
     dialog.showModal();
+  });
+
+  // Recent problems
+  function renderProblems() {
+    const list = getProblems();
+    $('problems-summary').textContent = list.length
+      ? `${list.length} recent ${list.length === 1 ? 'problem' : 'problems'}, newest first.`
+      : 'No problems recorded.';
+    $('problems-list').replaceChildren(...list.slice(0, 20).map((p) => {
+      const li = document.createElement('li');
+      const head = document.createElement('span');
+      head.className = 'p-head';
+      const what = document.createElement('span');
+      what.textContent = p.count > 1 ? `${p.service} (${p.count}×)` : p.service;
+      const when = document.createElement('span');
+      when.className = 'p-when';
+      when.textContent = formatDayClock(new Date(p.at));
+      head.append(what, when);
+      const detail = document.createElement('span');
+      detail.className = 'p-detail';
+      detail.textContent = `${p.server}: ${p.error}${p.online === false ? ' (offline)' : ''}`;
+      li.append(head, detail);
+      return li;
+    }));
+    $('problems-copy').hidden = !list.length;
+    $('problems-clear').hidden = !list.length;
+    $('problems-text').hidden = true;
+  }
+  onProblemsChange(() => { if (dialog.open) renderProblems(); });
+
+  $('problems-copy').addEventListener('click', async () => {
+    const text = problemsAsText();
+    const button = $('problems-copy');
+    try {
+      await navigator.clipboard.writeText(text);
+      button.textContent = 'Copied';
+      setTimeout(() => { button.textContent = 'Copy for a bug report'; }, 2000);
+    } catch {
+      // Clipboard not allowed here: show the text so it can be selected and copied.
+      const area = $('problems-text');
+      area.value = text;
+      area.hidden = false;
+      area.select();
+    }
+  });
+  $('problems-clear').addEventListener('click', () => {
+    clearProblems();
+    renderProblems();
   });
 }
 

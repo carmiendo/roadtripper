@@ -26,6 +26,7 @@ const SHELL = [
   'js/geocode.js',
   'js/location.js',
   'js/map.js',
+  'js/problems.js',
   'js/recent.js',
   'js/routing.js',
   'js/settings.js',

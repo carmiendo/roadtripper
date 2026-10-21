@@ -1,6 +1,8 @@
 // Address search and reverse lookup via Photon (OpenStreetMap data).
 // Copyright (C) 2026 Carmen Jackson. Licensed under the GNU GPL v3.0 (see LICENSE).
 
+import { recordProblem } from './problems.js';
+
 const PHOTON = 'https://photon.komoot.io';
 
 function labelFor(props) {
@@ -46,8 +48,18 @@ export async function searchPlaces(query, near, signal) {
     params.set('lat', near.lat.toFixed(4));
     params.set('lon', near.lon.toFixed(4));
   }
-  const res = await fetch(`${PHOTON}/api/?${params}`, { signal });
-  if (!res.ok) throw new Error(`Address search failed (${res.status}).`);
+  const url = `${PHOTON}/api/?${params}`;
+  let res;
+  try {
+    res = await fetch(url, { signal });
+  } catch (err) {
+    if (err.name !== 'AbortError') recordProblem('Address search', url, err);   // aborts are newer keystrokes
+    throw err;
+  }
+  if (!res.ok) {
+    recordProblem('Address search', url, `HTTP ${res.status}`);
+    throw new Error(`Address search failed (${res.status}).`);
+  }
   const data = await res.json();
   return data.features.map(toPlace).filter((p) => p.label);
 }
@@ -55,8 +67,18 @@ export async function searchPlaces(query, near, signal) {
 /** Name the place at a coordinate, for labeling "current location". */
 export async function reversePlace(lat, lon) {
   const params = new URLSearchParams({ lat: String(lat), lon: String(lon), lang: 'en' });
-  const res = await fetch(`${PHOTON}/reverse?${params}`);
-  if (!res.ok) return null;
+  const url = `${PHOTON}/reverse?${params}`;
+  let res;
+  try {
+    res = await fetch(url);
+  } catch (err) {
+    recordProblem('Place names', url, err);
+    throw err;
+  }
+  if (!res.ok) {
+    recordProblem('Place names', url, `HTTP ${res.status}`);
+    return null;
+  }
   const data = await res.json();
   return data.features.length ? toPlace(data.features[0]) : null;
 }
