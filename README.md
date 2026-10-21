@@ -9,7 +9,7 @@ Live at [roadtripper.quest](https://roadtripper.quest).
 
 ## Status
 
-Routing, gas stations ahead, and weather along the route are working. Next: phone layout refinements and offline support.
+Routing, gas stations ahead, weather along the route, home-screen install, and offline use are working.
 
 ## Features
 
@@ -20,7 +20,6 @@ Routing, gas stations ahead, and weather along the route are working. Next: phon
 5. Settings: color, units (miles/km, °F/°C), max distance off route, gap warning length
 6. Recent destinations and a results-first layout for use on the road
 7. Installable to the home screen (Chrome: menu → Add to Home screen / Install app)
-
 8. Works offline: reopens your last trip (route, stations, detours, forecasts) and map areas you viewed
 
 Planned: traffic-aware drive times.
@@ -31,7 +30,7 @@ All free and used without API keys:
 
 | Purpose | Service |
 |---|---|
-| Routing | [OSRM](https://project-osrm.org/), with [Valhalla](https://valhalla.github.io/valhalla/) as fallback |
+| Routing | [OSRM](https://project-osrm.org/) (project and [FOSSGIS](https://routing.openstreetmap.de/) servers), with [Valhalla](https://valhalla.github.io/valhalla/) as fallback |
 | Address search | [Photon](https://photon.komoot.io/) |
 | Gas stations | [Overpass API](https://wiki.openstreetmap.org/wiki/Overpass_API) (OpenStreetMap), several public servers |
 | Weather | [Open-Meteo](https://open-meteo.com/) |
