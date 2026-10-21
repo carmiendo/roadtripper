@@ -25,7 +25,7 @@ const SEGMENTS_PER_REQUEST = 4;    // up to ~100 km of route per request
 const PARALLEL_REQUESTS = 2;
 const HEDGE_AFTER_MS = 5000;       // start another server if no answer by then
 const REQUEST_TIMEOUT_MS = 25000;
-const CACHE_KEY = 'roadtripper.stations.v4';   // v4 adds opening hours
+const CACHE_KEY = 'roadtripper.stations.v5';   // v5 adds amenities
 const CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const CACHE_STALE_OK_MS = 14 * 24 * 60 * 60 * 1000;   // use old data if every server fails
 const CACHE_ROUTES = 5;
@@ -109,6 +109,23 @@ function segmentsQuery(route, segs, radius) {
   return `[out:json][timeout:25];(${parts.join('')});out center tags;`;
 }
 
+// Travel-center chains: big stops with restrooms, food, and truck parking.
+const TRUCK_STOP_BRANDS = /^(love'?s|pilot|flying j|ta|travelcenters of america|petro|buc-ee'?s|sapp bros|kwik trip)\b/i;
+
+/** Amenities from OSM tags. Untagged means unknown, so these only ever say "yes". */
+export function amenitiesFrom(t = {}) {
+  // Travel-center chains reliably have restrooms, a store, and food. A plain
+  // "trucks can fuel here" tag only says it's a truck stop.
+  const chain = TRUCK_STOP_BRANDS.test(t.brand || t.name || '');
+  const truckStop = chain || t.hgv === 'yes' || t['fuel:HGV_diesel'] === 'yes' || t.amenity === 'truck_stop';
+  return {
+    restrooms: t.toilets === 'yes' || (chain && t.toilets !== 'no'),
+    store: ['convenience', 'kiosk', 'supermarket', 'gas'].includes(t.shop) || chain,
+    food: Boolean(t.cuisine || t.fast_food === 'yes' || t.food === 'yes') || chain,
+    truckStop,
+  };
+}
+
 function toStation(el) {
   const t = el.tags || {};
   const lat = el.lat ?? el.center?.lat;
@@ -125,6 +142,7 @@ function toStation(el) {
     place: t['addr:city'] || t['addr:street'] || null,
     open24: t.opening_hours === '24/7',
     hours: t.opening_hours || null,
+    amenities: amenitiesFrom(t),
   };
 }
 

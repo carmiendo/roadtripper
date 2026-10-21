@@ -515,6 +515,22 @@ input[type="text"]:focus { border-color: var(--accent-ink); outline: none; }
   color: var(--muted);
 }
 .gas-retry { min-height: 44px; padding: 0 1.1rem; }
+.amenity-filter { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0 0 0.6rem; }
+.chip-button {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 1rem;
+  font: inherit;
+  font-weight: 600;
+  color: var(--fg);
+  background: var(--bg);
+  border: 2px solid var(--border);
+  border-radius: 999px;
+  cursor: pointer;
+}
+.chip-button[aria-pressed="true"] { color: var(--accent-fg); background: var(--accent); border-color: var(--accent); }
+.amenity-note { margin: 0 0 0.75rem; font-size: 0.85rem; color: var(--muted); }
 .gas-context { margin: 0 0 0.75rem; font-size: 0.85rem; color: var(--muted); }
 .gas-context:empty { display: none; }
 

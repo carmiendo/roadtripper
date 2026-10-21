@@ -29,6 +29,8 @@ export function createGasPanel({ settings, getMap, onChange, utcOffsetAt = () =>
     empty: $('gas-empty'),
     status: $('gas-status'),
     next: $('next-gas'),
+    amenityButtons: document.querySelectorAll('[data-amenity]'),
+    amenityNote: $('amenity-note'),
   };
 
   const state = {
@@ -42,6 +44,20 @@ export function createGasPanel({ settings, getMap, onChange, utcOffsetAt = () =>
   };
 
   let loader = null;
+
+  // ---------- Amenity filter ----------
+  // Only for this session: what you need changes from stop to stop.
+
+  const AMENITY_LABEL = { restrooms: 'Restrooms', store: 'Store', food: 'Food', truckStop: 'Truck stop' };
+  const wanted = new Set();
+  el.amenityButtons.forEach((b) => b.addEventListener('click', () => {
+    const key = b.dataset.amenity;
+    if (wanted.has(key)) wanted.delete(key); else wanted.add(key);
+    b.setAttribute('aria-pressed', String(wanted.has(key)));
+    state.shownKey = '';   // refit the map to the new list
+    render();
+  }));
+  const hasWanted = (s) => [...wanted].every((k) => s.amenities?.[k]);
   let detourQueue = [];
   let detourRunning = false;
 
@@ -198,10 +214,15 @@ export function createGasPanel({ settings, getMap, onChange, utcOffsetAt = () =>
     const name = document.createElement('p');
     name.className = 'station-name';
     name.textContent = station.name;
-    if (station.open24) {
+    const badges = [];
+    if (station.open24) badges.push('24 hr');
+    for (const [key, label] of Object.entries(AMENITY_LABEL)) {
+      if (station.amenities?.[key]) badges.push(label);
+    }
+    for (const text of badges) {
       const badge = document.createElement('span');
       badge.className = 'badge';
-      badge.textContent = '24 hr';
+      badge.textContent = text;
       name.append(' ', badge);
     }
     const sub = document.createElement('p');
@@ -447,7 +468,13 @@ export function createGasPanel({ settings, getMap, onChange, utcOffsetAt = () =>
 
     // Stations in the window
     const target = settings.gasTarget;
-    const { before, after } = pickAroundTarget(near, { from, target, range: [rStart, rEnd], perSide: PER_SIDE });
+    const listable = wanted.size ? near.filter(hasWanted) : near;
+    el.amenityNote.hidden = !wanted.size;
+    if (wanted.size) {
+      const names = [...wanted].map((k) => AMENITY_LABEL[k].toLowerCase()).join(' and ');
+      el.amenityNote.textContent = `Showing stations tagged with ${names}. Many stations aren't tagged, so some may be missing.`;
+    }
+    const { before, after } = pickAroundTarget(listable, { from, target, range: [rStart, rEnd], perSide: PER_SIDE });
     const shown = [...before, ...after];
 
     const items = [];

@@ -139,6 +139,13 @@
       </div>
       <p class="gas-context" id="gas-context"></p>
       <ul class="gaps" id="gas-gaps" aria-label="Stretches with no gas"></ul>
+      <div class="amenity-filter" role="group" aria-label="Only show stations with">
+        <button type="button" class="chip-button" data-amenity="restrooms" aria-pressed="false">Restrooms</button>
+        <button type="button" class="chip-button" data-amenity="store" aria-pressed="false">Store</button>
+        <button type="button" class="chip-button" data-amenity="food" aria-pressed="false">Food</button>
+        <button type="button" class="chip-button" data-amenity="truckStop" aria-pressed="false">Truck stop</button>
+      </div>
+      <p class="amenity-note" id="amenity-note" hidden></p>
       <ol class="stations" id="gas-list" aria-label="Gas stations"></ol>
       <p class="placeholder" id="gas-empty"></p>
       <div class="gas-status" id="gas-status" role="status" hidden></div>

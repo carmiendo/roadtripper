@@ -1,4 +1,5 @@
 import { test } from 'node:test';
+import * as stationsModule from '../js/stations.js';
 import assert from 'node:assert/strict';
 import { findGaps, pickAroundTarget, nextStation } from '../js/stations.js';
 import { straightRoute, stationsAt, MI } from './helpers.js';
@@ -84,4 +85,15 @@ test('nextStation: flags the last station before a gap', () => {
   const gaps = [{ start: 30 * MI, end: 100 * MI, length: 70 * MI, lastStation: st[1] }];
   assert.equal(nextStation(st, 15 * MI, gaps).gapAfter.length, 70 * MI);
   assert.equal(nextStation(st, 0, gaps).gapAfter, null);
+});
+
+test('amenitiesFrom: tags and truck-stop chains', () => {
+  const { amenitiesFrom } = stationsModule;
+  assert.deepEqual(amenitiesFrom({ toilets: 'yes', shop: 'convenience' }),
+    { restrooms: true, store: true, food: false, truckStop: false });
+  assert.deepEqual(amenitiesFrom({ brand: "Love's" }), { restrooms: true, store: true, food: true, truckStop: true });
+  assert.equal(amenitiesFrom({ brand: 'Pilot', toilets: 'no' }).restrooms, false);
+  assert.deepEqual(amenitiesFrom({ hgv: 'yes' }), { restrooms: false, store: false, food: false, truckStop: true });
+  assert.deepEqual(amenitiesFrom({ brand: 'Chevron' }), { restrooms: false, store: false, food: false, truckStop: false });
+  assert.equal(amenitiesFrom({ brand: 'Tapioca Express' }).truckStop, false);   // "TA" only as a whole word
 });
