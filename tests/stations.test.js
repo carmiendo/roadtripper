@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { findGaps, pickAroundTarget } from '../js/stations.js';
+import { findGaps, pickAroundTarget, nextStation } from '../js/stations.js';
 import { straightRoute, stationsAt, MI } from './helpers.js';
 
 const at = (list) => list.map((s) => Math.round(s.along / MI));
@@ -70,4 +70,18 @@ test('findGaps: a leading gap from your position is reported', () => {
   const route = straightRoute(300);
   const gaps = findGaps(stationsAt([60, 80]), route, 50 * MI, 0, 150 * MI);
   assert.deepEqual(miles(gaps), [[0, 60], [80, 150]]);
+});
+
+test('nextStation: first station ahead, skipping one you are at', () => {
+  const st = stationsAt([5, 20.05, 31, 60]);
+  assert.equal(nextStation(st, 20 * MI).station.name, 'S2');   // 20.05 is under 150 m ahead
+  assert.ok(Math.abs(nextStation(st, 20 * MI).distance / MI - 11) < 0.01);
+  assert.equal(nextStation(st, 70 * MI), null);
+});
+
+test('nextStation: flags the last station before a gap', () => {
+  const st = stationsAt([10, 30, 100]);
+  const gaps = [{ start: 30 * MI, end: 100 * MI, length: 70 * MI, lastStation: st[1] }];
+  assert.equal(nextStation(st, 15 * MI, gaps).gapAfter.length, 70 * MI);
+  assert.equal(nextStation(st, 0, gaps).gapAfter, null);
 });

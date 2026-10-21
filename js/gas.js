@@ -1,7 +1,7 @@
 // "Gas ahead" panel: stations around a target distance, detours, gap warnings.
 // Copyright (C) 2026 Carmen Jackson. Licensed under the GNU GPL v3.0 (see LICENSE).
 
-import { createStationLoader, findGaps, pickAroundTarget } from './stations.js';
+import { createStationLoader, findGaps, pickAroundTarget, nextStation } from './stations.js';
 import { getDetourLengths } from './routing.js';
 import { pointAlong, timeAlong, sliceAlong } from './geo.js';
 import { MAX_STATION_RADIUS, saveSettings } from './settings.js';
@@ -14,6 +14,7 @@ const DETOUR_SPAN_M = 3000;     // measure detours from 3 km before to 3 km afte
 const DETOUR_SPACING_MS = 1100; // OSRM's public server asks for at most 1 request a second
 const PER_SIDE = 5;   // stations shown on each side of the target
 const SEARCH_SPAN_M = 50 * 1609.344;   // look this far before and after the target
+const NEAR_M = 15 * 1609.344;          // while driving, also load this far ahead for "next gas"
 
 const $ = (id) => document.getElementById(id);
 
@@ -26,6 +27,7 @@ export function createGasPanel({ settings, getMap, onChange }) {
     list: $('gas-list'),
     empty: $('gas-empty'),
     status: $('gas-status'),
+    next: $('next-gas'),
   };
 
   const state = {
@@ -151,6 +153,7 @@ export function createGasPanel({ settings, getMap, onChange }) {
     const li = document.createElement('li');
     li.className = 'station';
     li.dataset.index = String(index);
+    li.dataset.id = station.id;
 
     const num = document.createElement('span');
     num.className = 'station-num';
@@ -294,11 +297,64 @@ export function createGasPanel({ settings, getMap, onChange }) {
     if (!loader || !state.trip) return;
     const from = state.progress?.along ?? 0;
     const target = settings.gasTarget;
-    loader.setRange(from + Math.max(0, target - SEARCH_SPAN_M), from + target + SEARCH_SPAN_M);
+    const also = state.progress?.live ? [[from, from + NEAR_M]] : [];
+    loader.setRange(from + Math.max(0, target - SEARCH_SPAN_M), from + target + SEARCH_SPAN_M, { also });
   }
+
+  // "Next gas" bar, pinned to the top while you're driving the route.
+  function renderNext(near, gaps, from) {
+    const live = state.progress?.live && state.trip;
+    el.next.hidden = !live;
+    if (!live) return;
+    const unit = settings.distanceUnit;
+    const [rStart] = state.load?.range ?? [from];
+    const nearEnd = from + NEAR_M;
+    const found = nextStation(near, from, gaps);
+    // A station past the near stretch is only "next" if everything before it is loaded.
+    const known = found && (found.station.along <= nearEnd || rStart <= nearEnd);
+    el.next.replaceChildren();
+    el.next.classList.toggle('next-gas--warn', Boolean(known && found.gapAfter));
+
+    const label = document.createElement('span');
+    label.className = 'next-label';
+    label.textContent = 'Next gas';
+    const dist = document.createElement('strong');
+    dist.className = 'next-dist';
+    const detail = document.createElement('span');
+    detail.className = 'next-detail';
+
+    if (known) {
+      const st = found.station;
+      dist.textContent = formatDistance(found.distance, unit);
+      detail.textContent = [st.name, st.place].filter(Boolean).join(' · ');
+      if (found.gapAfter) {
+        const warn = document.createElement('span');
+        warn.className = 'next-warn';
+        warn.textContent = `Last gas for ${found.gapAfter.open ? 'at least ' : ''}${formatDistance(found.gapAfter.length, unit)}`;
+        detail.append(document.createElement('br'), warn);
+      }
+      el.next.dataset.station = st.id;
+    } else if (state.load && !state.load.loading) {
+      dist.textContent = '—';
+      detail.textContent = `None in the next ${formatDistance(NEAR_M, unit)}`;
+      delete el.next.dataset.station;
+    } else {
+      dist.textContent = '…';
+      detail.textContent = 'Checking stations ahead';
+      delete el.next.dataset.station;
+    }
+    el.next.append(label, dist, detail);
+  }
+
+  el.next.addEventListener('click', () => {
+    const id = el.next.dataset.station;
+    const card = id && el.list.querySelector(`[data-id="${CSS.escape(id)}"]`);
+    (card || el.list.closest('section')).scrollIntoView({ behavior: 'smooth', block: card ? 'center' : 'start' });
+  });
 
   function render() {
     const map = getMap();
+    if (!state.trip || !state.stations) el.next.hidden = !(state.trip && state.progress?.live);
 
     if (!state.trip) {
       el.context.textContent = '';
@@ -341,6 +397,7 @@ export function createGasPanel({ settings, getMap, onChange }) {
       ? findGaps(near, route, settings.gapThreshold, rStart, rEnd, { leading: rStart <= from + 1 }).slice(0, 3)
       : [];
     el.gaps.replaceChildren(...gaps.map((g) => gapItem(g, from)));
+    renderNext(near, gaps, from);
     const gapAfterStation = new Map(gaps.filter((g) => g.lastStation).map((g) => [g.lastStation.id, g]));
 
     // Stations in the window

@@ -48,7 +48,7 @@ export function preloadMap() {
   loadMapLibre().catch(() => {});
 }
 
-const METHODS = ['showRoute', 'clear', 'refreshColors', 'showStations', 'showGaps', 'showPosition'];
+const METHODS = ['showRoute', 'clear', 'refreshColors', 'showStations', 'showGaps', 'showPosition', 'follow', 'stopFollowing'];
 
 /**
  * A map in `container`. Returns right away; calls made before the library
@@ -90,6 +90,9 @@ function createMapNow(container) {
 
   async function showRoute(route) {
     await ready;
+    following = false;
+    lastPosition = null;
+    recenterButton.hidden = true;
     const data = {
       type: 'Feature',
       properties: {},
@@ -177,7 +180,7 @@ function createMapNow(container) {
       targetMarker = new maplibregl.Marker({ element: el }).setLngLat(target).addTo(map);
     }
 
-    if (fit && coords.length) {
+    if (fit && coords.length && !following) {
       const points = target ? [...coords, target] : coords;
       const bounds = points.reduce((b, c) => b.extend(c), new maplibregl.LngLatBounds(points[0], points[0]));
       map.fitBounds(bounds, { padding: 50, maxZoom: 13, duration: 0 });
@@ -192,10 +195,61 @@ function createMapNow(container) {
   wholeRouteButton.textContent = 'Whole route';
   wholeRouteButton.hidden = true;
   wholeRouteButton.addEventListener('click', () => {
+    stopFollowing();
     if (routeBounds) map.fitBounds(routeBounds, { padding: 40, duration: 0 });
     wholeRouteButton.hidden = true;
   });
   container.append(wholeRouteButton);
+
+  // ---------- Following your position ----------
+  // While driving, the map keeps you in view. Panning or zooming yourself
+  // pauses that; "Recenter" turns it back on.
+
+  const FOLLOW_ZOOM = 12;
+  let following = false;
+  let lastPosition = null;
+
+  const recenterButton = document.createElement('button');
+  recenterButton.type = 'button';
+  recenterButton.className = 'map-recenter';
+  recenterButton.textContent = 'Recenter';
+  recenterButton.hidden = true;
+  recenterButton.addEventListener('click', () => {
+    following = true;
+    recenterButton.hidden = true;
+    if (lastPosition) map.easeTo({ center: lastPosition, zoom: Math.max(map.getZoom(), FOLLOW_ZOOM), duration: 600 });
+  });
+  container.append(recenterButton);
+
+  const userMoved = (e) => {
+    if (!e.originalEvent || !following) return;   // ignore moves the app made
+    following = false;
+    recenterButton.hidden = !lastPosition;
+  };
+  map.on('dragstart', userMoved);
+  map.on('zoomstart', userMoved);
+  map.on('rotatestart', userMoved);
+
+  /** Keep `coord` in view (if following). The first call turns following on. */
+  async function follow(coord) {
+    await ready;
+    const first = lastPosition === null;
+    lastPosition = coord;
+    if (first) following = true;
+    if (!following) return;
+    const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    map.easeTo({
+      center: coord,
+      zoom: first ? Math.max(map.getZoom(), FOLLOW_ZOOM) : map.getZoom(),
+      duration: reduce ? 0 : 800,
+    });
+    wholeRouteButton.hidden = false;
+  }
+
+  function stopFollowing() {
+    following = false;
+    recenterButton.hidden = !lastPosition;
+  }
 
   /** Highlight stretches with no gas. */
   async function showGaps(lines) {
@@ -239,5 +293,5 @@ function createMapNow(container) {
     }
   }
 
-  return { showRoute, clear, refreshColors, showStations, showGaps, showPosition };
+  return { showRoute, clear, refreshColors, showStations, showGaps, showPosition, follow, stopFollowing };
 }

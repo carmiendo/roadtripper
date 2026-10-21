@@ -139,7 +139,7 @@ function toStation(el) {
  * so moving the range forward only fetches what's new.
  *
  * onUpdate({stations, range, complete, loading, failed, stale}):
- *   stations  stations in loaded segments of the range, sorted along the route
+ *   stations  stations in loaded segments (range and extra stretches), sorted along the route
  *   range     [from, to] that was asked for
  *   complete  every segment in the range is loaded
  *   loading   some segments in the range are still being fetched
@@ -154,6 +154,7 @@ export function createStationLoader(route, radius, onUpdate) {
   const saved = readCache(key);           // {at, segs: {seg: raw[]}} or null
   const segs = new Map();                 // seg -> {status: 'ok'|'pending'|'failed', raw, stale}
   let range = [0, 0];
+  let extra = [];            // more stretches to load, e.g. just ahead of you
   let cancelled = false;
   let inFlight = 0;
 
@@ -168,9 +169,12 @@ export function createStationLoader(route, radius, onUpdate) {
     return out;
   };
 
+  // Segments to load: the main range plus any extra stretches, nearest first.
+  const wantedSegs = () => [...new Set([...extra.flatMap(segsIn), ...segsIn(range)])].sort((a, b) => a - b);
+
   function report() {
     if (cancelled) return;
-    const wanted = segsIn(range);
+    const wanted = wantedSegs();
     const raw = new Map();
     let complete = true, loading = false, failed = false, stale = false;
     for (const k of wanted) {
@@ -222,7 +226,7 @@ export function createStationLoader(route, radius, onUpdate) {
   // Start requests for missing segments, nearest first, a few at a time.
   function pump() {
     if (cancelled) return;
-    const missing = segsIn(range).filter((k) => !segs.has(k));
+    const missing = wantedSegs().filter((k) => !segs.has(k));
     while (inFlight < PARALLEL_REQUESTS && missing.length) {
       const group = [];
       while (missing.length && group.length < SEGMENTS_PER_REQUEST &&
@@ -235,13 +239,19 @@ export function createStationLoader(route, radius, onUpdate) {
   }
 
   return {
-    setRange(from, to) {
+    /**
+     * @param {number} from
+     * @param {number} to
+     * @param {{also?: Array<[number, number]>}} [opts] extra stretches to load
+     */
+    setRange(from, to, { also = [] } = {}) {
       range = [Math.max(0, from), Math.min(total, to)];
+      extra = also.map(([a, b]) => [Math.max(0, a), Math.min(total, b)]);
       pump();
       report();
     },
     retry() {
-      for (const k of segsIn(range)) if (segs.get(k)?.status === 'failed') segs.delete(k);
+      for (const k of wantedSegs()) if (segs.get(k)?.status === 'failed') segs.delete(k);
       pump();
       report();
     },
@@ -325,4 +335,15 @@ export function pickAroundTarget(stations, { from, target, range, perSide }) {
     before: ahead.filter((s) => s.along - from <= target).slice(-perSide),
     after: ahead.filter((s) => s.along - from > target).slice(0, perSide),
   };
+}
+
+/**
+ * The first station ahead of `from` (more than `minAhead` meters on), or null.
+ * Also says whether it's the last one before a gap from `gaps`.
+ */
+export function nextStation(stations, from, gaps = [], minAhead = 150) {
+  const next = stations.find((s) => s.along > from + minAhead) || null;
+  if (!next) return null;
+  const gap = gaps.find((g) => g.lastStation?.id === next.id) || null;
+  return { station: next, distance: next.along - from, gapAfter: gap };
 }

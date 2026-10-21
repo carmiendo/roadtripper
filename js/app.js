@@ -383,7 +383,9 @@ function updateProgress(pos) {
   const progress = onRoute ? { along: snap.along, live: true } : null;
   gas.setProgress(progress);
   weather.setProgress(progress);
-  map?.showPosition(onRoute ? pointAlong(route, snap.along) : null);
+  const here = onRoute ? pointAlong(route, snap.along) : null;
+  map?.showPosition(here);
+  if (here) map?.follow(here);
 }
 
 // Follow the device's position while a route is shown, if location access is
@@ -400,13 +402,22 @@ async function startTracking(startPos) {
   } catch { /* Permissions API unavailable; fall back to whether we already have a fix. */ }
   if (!granted) return;
 
+  // Apply at most one update every 5 seconds, always ending on the latest position.
   let last = 0;
+  let pending = null;
+  let timer = null;
+  const apply = () => {
+    timer = null;
+    last = Date.now();
+    if (pending) updateProgress(pending);
+    pending = null;
+  };
   watchId = navigator.geolocation.watchPosition(
     (p) => {
-      const now = Date.now();
-      if (now - last < 15000) return;   // update at most every 15 seconds
-      last = now;
-      updateProgress({ lat: p.coords.latitude, lon: p.coords.longitude });
+      pending = { lat: p.coords.latitude, lon: p.coords.longitude };
+      const wait = 5000 - (Date.now() - last);
+      if (wait <= 0) apply();
+      else if (!timer) timer = setTimeout(apply, wait);
     },
     () => {},
     { enableHighAccuracy: false, maximumAge: 30000, timeout: 60000 },

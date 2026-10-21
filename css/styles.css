@@ -12,6 +12,7 @@
   --error: #b42318;
   --warn: #a15c07;        /* advisory amber, for gaps and alerts */
   --warn-soft: #fdf1dc;
+  --warn-fg: #ffffff;      /* text on a solid warn background */
   --warn-line: #d97706;   /* gap stretches on the map (map stays light in both themes) */
   --danger: #b42318;      /* severe weather alerts */
   --danger-soft: #fdecea;
@@ -45,6 +46,7 @@
     --error: #ff8a80;
     --warn: #f0b252;
     --warn-soft: #33250f;
+    --warn-fg: #1d1b1e;
     --danger: #ff8a80;
     --danger-soft: #3a1514;
     --wx-sun: #ffc24d;
@@ -431,6 +433,34 @@ input[type="text"]:focus { border-color: var(--accent-ink); outline: none; }
   border-radius: 10px;
 }
 
+/* ---------- Next gas bar (while driving) ---------- */
+
+.next-gas {
+  position: sticky;
+  top: env(safe-area-inset-top, 0px);
+  z-index: 30;
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  align-items: center;
+  column-gap: 0.75rem;
+  width: 100%;
+  min-height: var(--tap);
+  padding: 0.55rem 0.9rem;
+  font: inherit;
+  text-align: left;
+  color: var(--accent-fg);
+  background: var(--accent);
+  border: 0;
+  border-radius: 12px;
+  box-shadow: 0 4px 14px rgb(0 0 0 / 0.2);
+  cursor: pointer;
+}
+.next-gas--warn { background: var(--warn); color: var(--warn-fg); }
+.next-label { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; opacity: 0.9; }
+.next-dist { font-size: 1.6rem; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.next-detail { min-width: 0; font-weight: 600; line-height: 1.25; overflow-wrap: anywhere; }
+.next-warn { font-weight: 800; }
+
 /* ---------- Gas ---------- */
 
 .gas-target {
@@ -583,6 +613,23 @@ input[type="text"]:focus { border-color: var(--accent-ink); outline: none; }
   border: 3px dashed var(--route);
   border-radius: 50%;
   background: rgb(255 255 255 / 0.7);
+}
+.map-recenter {
+  position: absolute;
+  z-index: 2;
+  right: 10px;
+  bottom: 30px;
+  min-height: 44px;
+  padding: 0 1rem;
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: #fff;
+  background: #1a73e8;
+  border: 0;
+  border-radius: 999px;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.3);
+  cursor: pointer;
 }
 .map-whole-route {
   position: absolute;
