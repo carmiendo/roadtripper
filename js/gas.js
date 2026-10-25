@@ -578,6 +578,23 @@ export function createGasPanel({ settings, getMap, onChange, utcOffsetAt = () =>
     updateRange();
   }
 
+  // Forget the trip (the section was closed for a new trip).
+  function clear() {
+    state.generation += 1;
+    loader?.cancel();
+    loader = null;
+    state.trip = null;
+    state.stations = null;
+    state.load = null;
+    state.detours = new Map();
+    detourQueue = [];
+    el.next.hidden = true;
+    const map = getMap();
+    map?.showStations([]);
+    map?.showGaps([]);
+    render();
+  }
+
   function setProgress(progress) {
     state.progress = progress;
     if (!state.trip) return;
@@ -609,5 +626,5 @@ export function createGasPanel({ settings, getMap, onChange, utcOffsetAt = () =>
     return new Map([...state.detours].filter(([id, d]) => typeof d === 'object' && !id.startsWith('tt/')));
   }
 
-  return { setTrip, setProgress, refreshSettings, retryFailed, snapshot };
+  return { setTrip, clear, setProgress, refreshSettings, retryFailed, snapshot };
 }

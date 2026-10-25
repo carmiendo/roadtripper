@@ -457,6 +457,16 @@ export function createWeatherPanel({ settings, onChange, onChooseDeparture }) {
     if (!state.points || isStale()) load(state.generation);
   }
 
+  // Forget the trip (the section was closed for a new trip).
+  function clear() {
+    state.generation += 1;
+    state.trip = null;
+    state.points = null;
+    state.alerts = null;
+    state.fetchedAt = 0;
+    render();
+  }
+
   const isStale = () => Date.now() - state.fetchedAt > REFRESH_MS;
 
   // Called when the connection comes back.
@@ -493,5 +503,5 @@ export function createWeatherPanel({ settings, onChange, onChooseDeparture }) {
     return best ? best.utcOffset : null;
   }
 
-  return { setTrip, setProgress, refreshSettings: render, refreshIfStale, snapshot, utcOffsetAt };
+  return { setTrip, clear, setProgress, refreshSettings: render, refreshIfStale, snapshot, utcOffsetAt };
 }

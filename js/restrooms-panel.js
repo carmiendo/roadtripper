@@ -165,7 +165,6 @@ export function createRestroomsPanel({ settings }) {
     state.unavailable = !TOMTOM_KEY;
     loader?.cancel();
     loader = null;
-    el.panel.hidden = false;
     if (TOMTOM_KEY) {
       loader = createTomTomStationLoader(trip.route, MAX_STATION_RADIUS, (update) => {
         if (generation !== state.generation) return;
@@ -189,6 +188,16 @@ export function createRestroomsPanel({ settings }) {
     updateRange();
   }
 
+  // Forget the trip (the section was closed for a new trip).
+  function clear() {
+    state.generation += 1;
+    loader?.cancel();
+    loader = null;
+    state.trip = null;
+    state.stops = null;
+    render();
+  }
+
   function setProgress(progress) {
     state.progress = progress;
     if (!state.trip) return;
@@ -203,5 +212,5 @@ export function createRestroomsPanel({ settings }) {
 
   function refreshSettings() { render(); }
 
-  return { setTrip, setProgress, refreshSettings, retryFailed };
+  return { setTrip, clear, setProgress, refreshSettings, retryFailed };
 }

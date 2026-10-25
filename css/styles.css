@@ -396,6 +396,40 @@ input[type="text"]:focus { border-color: var(--accent-ink); outline: none; }
   border: 1px solid var(--border);
   background: var(--bg);
 }
+/* Gas / Restrooms / Weather: start each search only when it's wanted */
+.section-buttons {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.6rem;
+  margin-top: 0.75rem;
+}
+.section-button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.2rem;
+  min-height: 76px;
+  padding: 0.6rem 0.25rem;
+  border: 0;
+  border-radius: 14px;
+  background: var(--accent);
+  color: var(--accent-fg);
+  font: inherit;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.section-emoji {
+  font-size: 2.4rem;
+  line-height: 1;
+  /* Color emoji drawn as a white silhouette */
+  filter: brightness(0) invert(1);
+}
+.section-button:active { filter: brightness(0.9); }
+.section-button:focus-visible { outline: 3px solid var(--accent-ink); outline-offset: 2px; }
+/* Open: a ring around the button */
+.section-button[aria-pressed="true"] { outline: 3px solid var(--accent); outline-offset: 3px; }
+
 .map--loading {
   background:
     linear-gradient(100deg, transparent 30%, rgb(255 255 255 / 0.35) 50%, transparent 70%) var(--bg);

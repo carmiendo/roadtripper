@@ -42,6 +42,8 @@ const state = {
   trip: null,   // {route, from, to, departAt, fromHere} current trip
   progress: null, // {along, live} while you're on the route
   savedAt: null,  // when the shown trip was saved, if it was reopened from storage
+  open: new Set(),     // sections shown: 'gas', 'restrooms', 'weather'
+  started: new Set(),  // sections that have started searching for this trip
 };
 
 let map = null;
@@ -297,8 +299,6 @@ function renderRoute({ route, from, to, departAt }, { refit = true } = {}) {
 
   $('trip-panel').hidden = true;
   $('route-panel').hidden = false;
-  $('gas-panel').hidden = false;
-  $('weather-panel').hidden = false;
   if (!refit) return;
   if (!map) map = createMap($('map'));
   map.showRoute(route);
@@ -367,13 +367,8 @@ async function plan(event) {
     renderRecent(addRecent(to));
     renderRoute(state.trip);
     setStatus('');
+    resetSections();
     persistTrip();
-    gas.setProgress(null);
-    gas.setTrip(state.trip);
-    restrooms.setProgress(null);
-    restrooms.setTrip(state.trip);
-    weather.setProgress(null);
-    weather.setTrip(state.trip);
     roads.setProgress(null);
     roads.setTrip(state.trip);
     startTracking(fromHere ? from : null);
@@ -401,9 +396,7 @@ async function setDeparture(date) {
       state.route = route;
       if (route.provider === 'TomTom') attachStorableRoute(trip);
       renderRoute(trip);
-      gas.setTrip(trip);
-      restrooms.setTrip(trip);
-      weather.setTrip(trip);
+      for (const name of state.started) SECTIONS[name].start();
       roads.setTrip(trip);
     } catch {
       // Keep the existing route; its times just shift to the new departure.
@@ -440,6 +433,67 @@ function showTomTomCopyright(route) {
   });
 }
 
+// ---------- Sections (gas, restrooms, weather) ----------
+// Each one starts searching only when you tap its button under the map, and
+// stays open for the rest of that trip until you tap it again.
+
+const SECTIONS = {
+  gas: {
+    start: (saved) => { gas.setProgress(state.progress); gas.setTrip(state.trip, saved?.detours); },
+    clear: () => gas.clear(),
+  },
+  restrooms: {
+    start: () => { restrooms.setProgress(state.progress); restrooms.setTrip(state.trip); },
+    clear: () => restrooms.clear(),
+  },
+  weather: {
+    start: (saved) => { weather.setProgress(state.progress); weather.setTrip(state.trip, saved?.weather); },
+    clear: () => weather.clear(),
+  },
+};
+
+function renderSections() {
+  for (const name of Object.keys(SECTIONS)) {
+    const open = state.open.has(name);
+    $(`${name}-panel`).hidden = !open;
+    document.querySelector(`[data-section="${name}"]`)?.setAttribute('aria-pressed', String(open));
+  }
+}
+
+function startSection(name, saved = null) {
+  if (state.started.has(name) || !state.trip) return;
+  state.started.add(name);
+  SECTIONS[name].start(saved);
+}
+
+/** For a new (or reopened) trip: close everything, then open `open`. */
+function resetSections(open = [], saved = null) {
+  state.open = new Set(open.filter((n) => n in SECTIONS));
+  state.started = new Set();
+  for (const s of Object.values(SECTIONS)) s.clear();
+  for (const name of state.open) startSection(name, saved);
+  renderSections();
+}
+
+function toggleSection(name) {
+  if (!state.trip) return;
+  const opening = !state.open.has(name);
+  if (opening) {
+    state.open.add(name);
+    startSection(name);
+  } else {
+    state.open.delete(name);
+  }
+  renderSections();
+  if (opening) $(`${name}-panel`).scrollIntoView({ behavior: 'smooth', block: 'start' });
+  persistTrip();
+}
+
+function setupSections() {
+  document.querySelectorAll('[data-section]').forEach((b) =>
+    b.addEventListener('click', () => toggleSection(b.dataset.section)));
+}
+
 // ---------- Saved trip and offline ----------
 
 let saveTimer = null;
@@ -449,7 +503,7 @@ function persistTrip() {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
     if (!state.trip) return;
-    saveTrip(state.trip, { weather: weather.snapshot(), detours: gas.snapshot() });
+    saveTrip(state.trip, { weather: weather.snapshot(), detours: gas.snapshot(), open: [...state.open] });
   }, 800);
 }
 
@@ -462,9 +516,7 @@ function restoreTrip() {
   state.savedAt = saved.savedAt;
   state.progress = null;
   renderRoute(state.trip);
-  gas.setTrip(state.trip, saved.detours);
-  restrooms.setTrip(state.trip);
-  weather.setTrip(state.trip, saved.weather);
+  resetSections(saved.open, saved);
   roads.setTrip(state.trip);
   if (saved.trip.fromHere) startTracking(null);   // follows you only if location is already allowed
   return true;
@@ -743,6 +795,7 @@ function init() {
     onChooseDeparture: setDeparture,
   });
   setupSettings();
+  setupSections();
   roads = createRoadsPanel({ settings, getMap: () => map });
   const restored = restoreTrip();
   setupOffline();
