@@ -30,6 +30,7 @@ const SHELL = [
   'js/map.js',
   'js/problems.js',
   'js/recent.js',
+  'js/restrooms-panel.js',
   'js/roads.js',
   'js/roads-panel.js',
   'js/routing.js',

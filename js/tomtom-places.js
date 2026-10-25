@@ -39,6 +39,10 @@ export const SEARCHES = {
     { query: '*', categorySet: `${CATEGORY.gas},${CATEGORY.truckStop}` },
     { query: '*', categorySet: `${CATEGORY.truckStop}` },
   ],
+  restrooms: [
+    { query: '*', categorySet: `${CATEGORY.restArea}` },
+    { query: '*', categorySet: `${CATEGORY.truckStop}` },
+  ],
 };
 
 /** Thrown when TomTom can't be used right now (no key, refused, offline). */
@@ -65,7 +69,7 @@ async function slot() {
   if (at > now) await new Promise((r) => setTimeout(r, at - now));
 }
 
-async function searchStretch(route, from, to, search, attempt = 0) {
+async function searchStretch(route, from, to, search, attempt = 0, service = 'Gas stations') {
   await slot();
   const { query, categorySet } = search;
   const points = thin(sliceAlong(route, from, to)).map(([lon, lat]) => ({ lat, lon }));
@@ -89,17 +93,17 @@ async function searchStretch(route, from, to, search, attempt = 0) {
       signal: ctrl.signal,
     });
   } catch (err) {
-    recordProblem('Gas stations', safeUrl, err);
+    recordProblem(service, safeUrl, err);
     throw new TomTomUnavailable(err.name === 'AbortError' ? 'timed out' : 'no response');
   } finally {
     clearTimeout(timer);
   }
   if (res.status === 429 && attempt < RETRIES_429) {
     await new Promise((r) => setTimeout(r, 1200 * (attempt + 1)));
-    return searchStretch(route, from, to, search, attempt + 1);
+    return searchStretch(route, from, to, search, attempt + 1, service);
   }
   if (!res.ok) {
-    recordProblem('Gas stations', safeUrl, `HTTP ${res.status}`);
+    recordProblem(service, safeUrl, `HTTP ${res.status}`);
     // 403: key refused; 429: over the daily limit; 5xx: TomTom trouble.
     throw new TomTomUnavailable(`HTTP ${res.status}`);
   }
@@ -111,15 +115,15 @@ async function searchStretch(route, from, to, search, attempt = 0) {
  * All places in a stretch, splitting it while answers come back full.
  * @returns {Promise<object[]>} TomTom results
  */
-export async function searchAll(route, from, to, search) {
-  const results = await searchStretch(route, from, to, search);
+export async function searchAll(route, from, to, search, service) {
+  const results = await searchStretch(route, from, to, search, 0, service);
   if (results.length < LIMIT || to - from <= MIN_PIECE_M) return results;
   const mid = (from + to) / 2;
-  const [a, b] = await Promise.all([searchAll(route, from, mid, search), searchAll(route, mid, to, search)]);
+  const [a, b] = await Promise.all([searchAll(route, from, mid, search, service), searchAll(route, mid, to, search, service)]);
   return [...a, ...b];
 }
 
-const hasCategory = (r, id) => (r.poi?.categorySet || []).some((c) => c.id === id);
+export const hasCategory = (r, id) => (r.poi?.categorySet || []).some((c) => c.id === id);
 
 /** A TomTom result as a station (same shape as stations.js, plus `detour`). */
 export function toStation(r) {
@@ -146,6 +150,32 @@ export function toStation(r) {
       ? { distance: r.detourDistance || 0, duration: r.detourTime }
       : null,
   };
+}
+
+/** Whether a TomTom result belongs in the restrooms list: rest areas and real truck stops. */
+export function isRestroomStop(r) {
+  if (hasCategory(r, CATEGORY.restArea)) return true;
+  return hasCategory(r, CATEGORY.truckStop) && isFuelStop(r);
+}
+
+/** A TomTom result as a restroom stop: a station-shaped object with `kind`. */
+export function toRestroomStop(r) {
+  const restArea = hasCategory(r, CATEGORY.restArea);
+  const st = toStation(r);
+  if (restArea) {
+    // Rest areas come with names like "Rest Area:" or "Rest Area: Truckee
+    // Welcome Center Follow Signs". "Rest Area" stays in the name: it helps
+    // tell real rest areas from vista points TomTom files in the same category.
+    const name = String(r.poi?.name || '')
+      .replace(/\s*follow signs?\s*$/i, '')
+      .replace(/[\s:]+$/, '')
+      .trim();
+    st.name = name || 'Rest area';
+    st.subname = null;
+    st.amenities = { truckStop: false };
+  }
+  st.kind = restArea ? 'rest' : 'truck';
+  return st;
 }
 
 // TomTom's truck-stop category also holds unrelated businesses (truck
@@ -198,7 +228,15 @@ export function mergeStations(list) {
  * onUnavailable(err) is called once if TomTom can't be used, so the caller
  * can switch to the backup loader.
  */
-export function createTomTomStationLoader(route, radius, onUpdate, { onUnavailable, searches = SEARCHES.gas } = {}) {
+export function createTomTomStationLoader(route, radius, onUpdate, {
+  onUnavailable,
+  searches = SEARCHES.gas,
+  keep = isFuelStop,
+  convert = toStation,
+  service = 'Gas stations',
+  segmentM = SEGMENT_M,   // longer for sparse places, like rest areas
+} = {}) {
+  const SEGMENT_M = segmentM;
   const total = route.cumDist[route.cumDist.length - 1];
   const lastSeg = Math.floor(Math.max(0, total - 1) / SEGMENT_M);
   const index = createRouteIndex(route, radius);
@@ -243,9 +281,9 @@ export function createTomTomStationLoader(route, radius, onUpdate, { onUnavailab
     const from = k * SEGMENT_M;
     const to = Math.min(total, from + SEGMENT_M);
     try {
-      const lists = await Promise.all(searches.map((s) => searchAll(route, from, to, s)));
+      const lists = await Promise.all(searches.map((s) => searchAll(route, from, to, s, service)));
       if (cancelled) return;
-      segs.set(k, { status: 'ok', raw: lists.flat().filter(isFuelStop).map(toStation) });
+      segs.set(k, { status: 'ok', raw: lists.flat().filter(keep).map(convert) });
     } catch (err) {
       if (cancelled) return;
       segs.set(k, { status: 'failed', raw: [] });

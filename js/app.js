@@ -22,6 +22,7 @@ import { getCurrentPosition } from './location.js';
 import { createMap, preloadMap } from './map.js';
 import { ACCENTS, CHOICES, loadSettings, saveSettings, applyAccent, nearestChoice } from './settings.js';
 import { createGasPanel } from './gas.js';
+import { createRestroomsPanel } from './restrooms-panel.js';
 import { createWeatherPanel } from './weather-panel.js';
 import { createRoadsPanel } from './roads-panel.js';
 import { projectToRoute, pointAlong, timeAlong } from './geo.js';
@@ -46,6 +47,7 @@ const state = {
 let map = null;
 let planning = false;
 let gas = null;
+let restrooms = null;
 let weather = null;
 let roads = null;
 let watchId = null;
@@ -368,6 +370,8 @@ async function plan(event) {
     persistTrip();
     gas.setProgress(null);
     gas.setTrip(state.trip);
+    restrooms.setProgress(null);
+    restrooms.setTrip(state.trip);
     weather.setProgress(null);
     weather.setTrip(state.trip);
     roads.setProgress(null);
@@ -398,6 +402,7 @@ async function setDeparture(date) {
       if (route.provider === 'TomTom') attachStorableRoute(trip);
       renderRoute(trip);
       gas.setTrip(trip);
+      restrooms.setTrip(trip);
       weather.setTrip(trip);
       roads.setTrip(trip);
     } catch {
@@ -413,6 +418,7 @@ async function setDeparture(date) {
   updateDepartSummary();
   renderRoute(state.trip, { refit: false });
   gas.refreshSettings();
+  restrooms.refreshSettings();
   weather.refreshSettings();
   roads.refreshSettings();
   persistTrip();
@@ -457,6 +463,7 @@ function restoreTrip() {
   state.progress = null;
   renderRoute(state.trip);
   gas.setTrip(state.trip, saved.detours);
+  restrooms.setTrip(state.trip);
   weather.setTrip(state.trip, saved.weather);
   roads.setTrip(state.trip);
   if (saved.trip.fromHere) startTracking(null);   // follows you only if location is already allowed
@@ -478,6 +485,7 @@ function setupOffline() {
   window.addEventListener('online', () => {
     updateOfflineBanner();
     gas.retryFailed();
+    restrooms.retryFailed();
     weather.refreshIfStale();
     if (/offline/i.test($('status').textContent)) setStatus('');
   });
@@ -524,6 +532,7 @@ function updateProgress(pos) {
   state.progress = progress;
   renderSummary();
   gas.setProgress(progress);
+  restrooms.setProgress(progress);
   weather.setProgress(progress);
   roads.setProgress(progress);
   const here = onRoute ? pointAlong(route, snap.along) : null;
@@ -630,6 +639,7 @@ function setupSettings() {
     }
     if (name === 'distanceUnit' && state.trip) renderRoute(state.trip, { refit: false });
     gas.refreshSettings();
+    restrooms.refreshSettings();
     weather.refreshSettings();
     roads.refreshSettings();
   });
@@ -725,6 +735,7 @@ function init() {
     settings, getMap: () => map, onChange: persistTrip,
     utcOffsetAt: (along) => weather?.utcOffsetAt(along) ?? null,
   });
+  restrooms = createRestroomsPanel({ settings });
   weather = createWeatherPanel({
     settings,
     // New forecasts can bring time zones the station hours depend on.

@@ -6,7 +6,7 @@ import { tomtomHours, hoursStatus } from '../js/hours.js';
 
 installLocalStorage();
 const {
-  toStation, mergeStations, isFuelStop, searchAll, createTomTomStationLoader, CATEGORY,
+  toStation, mergeStations, isFuelStop, isRestroomStop, toRestroomStop, searchAll, createTomTomStationLoader, CATEGORY,
 } = await import('../js/tomtom-places.js');
 
 const route = straightRoute(60);
@@ -135,4 +135,19 @@ test('tomtomHours: daily hours and closed days', () => {
   assert.deepEqual(hoursStatus(hours, new Date(Date.UTC(2026, 9, 24, 23)), utc).open, false);
   assert.deepEqual(hoursStatus(hours, new Date(Date.UTC(2026, 9, 25, 12)), utc).open, false);
   assert.equal(tomtomHours([]), null);
+});
+
+test('restroom stops: rest areas and real truck stops, with tidy rest-area names', () => {
+  const rest = result('r', 5, { name: 'Rest Area:', brand: null, cats: [CATEGORY.restArea] });
+  const named = result('n', 5, { name: 'C.H. Warlow Safety Rest Area', brand: null, cats: [CATEGORY.restArea] });
+  const truck = result('t', 5, { name: "Love's Travel Stop", cats: [CATEGORY.truckStop] });
+  const junk = result('j', 5, { name: 'Applegate Tran Interiors', brand: null, cats: [CATEGORY.truckStop] });
+  const gas = result('g', 5);
+  assert.deepEqual([rest, named, truck, junk, gas].map(isRestroomStop), [true, true, true, false, false]);
+  assert.equal(toRestroomStop(rest).name, 'Rest Area');
+  assert.equal(toRestroomStop(rest).kind, 'rest');
+  assert.equal(toRestroomStop(named).name, 'C.H. Warlow Safety Rest Area');
+  const signs = result('s', 5, { name: 'Rest Area: Truckee Welcome Center Follow Signs', brand: null, cats: [CATEGORY.restArea] });
+  assert.equal(toRestroomStop(signs).name, 'Rest Area: Truckee Welcome Center');
+  assert.equal(toRestroomStop(truck).kind, 'truck');
 });

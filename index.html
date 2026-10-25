@@ -41,6 +41,7 @@
   <link rel="modulepreload" href="js/gas.js">
   <link rel="modulepreload" href="js/weather.js">
   <link rel="modulepreload" href="js/tomtom-places.js">
+  <link rel="modulepreload" href="js/restrooms-panel.js">
   <link rel="modulepreload" href="js/weather-panel.js">
   <!-- Open connections early to the services the first actions use. -->
   <link rel="preconnect" href="https://photon.komoot.io" crossorigin>
@@ -157,6 +158,17 @@
       <ol class="stations" id="gas-list" aria-label="Gas stations"></ol>
       <p class="placeholder" id="gas-empty"></p>
       <div class="gas-status" id="gas-status" role="status" hidden></div>
+    </section>
+
+    <section class="panel" id="restrooms-panel" aria-labelledby="restrooms-heading" hidden>
+      <h2 id="restrooms-heading">Restrooms ahead</h2>
+      <p class="gas-context" id="restrooms-context"></p>
+      <div class="amenity-filter" role="group" aria-label="Filter restroom stops">
+        <button type="button" class="chip-button" data-restroom-kind="rest" aria-pressed="false">Rest stops</button>
+        <button type="button" class="chip-button" data-restroom-kind="truck" aria-pressed="false">Truck stops</button>
+      </div>
+      <ol class="stations" id="restrooms-list" aria-label="Restroom stops"></ol>
+      <p class="placeholder" id="restrooms-empty" hidden></p>
     </section>
 
     <section class="panel" id="weather-panel" aria-labelledby="weather-heading" hidden>

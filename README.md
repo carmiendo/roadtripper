@@ -27,6 +27,7 @@ Routing, gas stations ahead, weather and road conditions along the route, home-s
 12. Compare the weather for leaving now vs. 1–4 hours later
 13. California chain controls and closures ahead on the route (Caltrans)
 14. Recent problems log in Settings, with a copy button for bug reports
+15. Restrooms ahead: the next rest stops and truck stops on the route, with a filter for each (TomTom)
 
 Traffic-aware drive times and gas stations from TomTom when the `TOMTOM_KEY` secret is set (otherwise OSRM's normal-traffic times and OpenStreetMap stations).
 
