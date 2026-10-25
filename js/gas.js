@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Carmen Jackson. Licensed under the GNU GPL v3.0 (see LICENSE).
 
 import { createStationLoader, findGaps, pickAroundTarget, nextStation } from './stations.js';
-import { createTomTomStationLoader } from './tomtom-places.js';
+import { createTomTomStationLoader, mergeStations, SEARCHES } from './tomtom-places.js';
 import { TOMTOM_KEY } from './config.js';
 import { parseHours, hoursStatus } from './hours.js';
 import { getDetourLengths } from './routing.js';
@@ -16,7 +16,7 @@ import {
 const DETOUR_SPAN_M = 3000;     // measure detours from 3 km before to 3 km after the station
 const DETOUR_SPACING_MS = 1100; // OSRM's public server asks for at most 1 request a second
 const PER_SIDE = 5;   // stations shown on each side of the target
-const SEARCH_SPAN_M = 50 * 1609.344;   // look this far before and after the target
+const SEARCH_SPAN_M = 30 * 1609.344;   // look this far before and after the target
 const NEAR_M = 15 * 1609.344;          // while driving, also load this far ahead for "next gas"
 
 const $ = (id) => document.getElementById(id);
@@ -58,8 +58,38 @@ export function createGasPanel({ settings, getMap, onChange, utcOffsetAt = () =>
     if (wanted.has(key)) wanted.delete(key); else wanted.add(key);
     b.setAttribute('aria-pressed', String(wanted.has(key)));
     state.shownKey = '';   // refit the map to the new list
+    if (wanted.has('truckStop')) startTruckLoader();
     render();
   }));
+
+  // With TomTom, truck stops get their own search while the filter is on, so
+  // busy stretches full of ordinary stations don't crowd them out. Started on
+  // first use for each trip; its results are kept after the filter goes off.
+  let truckLoader = null;
+  function startTruckLoader() {
+    if (truckLoader || source !== 'tomtom' || !state.trip) return;
+    const generation = state.generation;
+    truckLoader = createTomTomStationLoader(state.trip.route, MAX_STATION_RADIUS, (update) => {
+      if (generation !== state.generation) return;
+      state.truckExtra = update;
+      combine();
+      render();
+    }, { searches: SEARCHES.truckStops, onUnavailable: () => { truckLoader = null; } });
+    updateRange();
+  }
+
+  // Main stations plus any truck stops from their own search, merged.
+  function combine() {
+    const main = state.mainStations;
+    if (!main) { state.stations = null; return; }
+    const extra = state.truckExtra?.stations ?? [];
+    for (const st of extra) {
+      if (st.detour && typeof state.detours.get(st.id) !== 'object') state.detours.set(st.id, st.detour);
+    }
+    state.stations = extra.length
+      ? mergeStations([...main, ...extra]).sort((a, b) => a.along - b.along)
+      : main;
+  }
   const hasWanted = (s) => [...wanted].every((k) => s.amenities?.[k]);
   let detourQueue = [];
   let detourRunning = false;
@@ -367,6 +397,7 @@ export function createGasPanel({ settings, getMap, onChange, utcOffsetAt = () =>
     const target = settings.gasTarget;
     const also = state.progress?.live ? [[from, from + NEAR_M]] : [];
     loader.setRange(from + Math.max(0, target - SEARCH_SPAN_M), from + target + SEARCH_SPAN_M, { also });
+    truckLoader?.setRange(from + Math.max(0, target - SEARCH_SPAN_M), from + target + SEARCH_SPAN_M);
   }
 
   // "Next gas" bar, pinned to the top while you're driving the route.
@@ -477,6 +508,8 @@ export function createGasPanel({ settings, getMap, onChange, utcOffsetAt = () =>
     if (wanted.size) {
       el.amenityNote.textContent = "Showing stations tagged as truck stops. Many aren't tagged, so some may be missing.";
     }
+    // With the filter on, wait for the truck-stop search before saying there are none.
+    const listDone = state.load.complete && !(wanted.size && truckLoader && !state.truckExtra?.complete);
     const { before, after } = pickAroundTarget(listable, { from, target, range: [rStart, rEnd], perSide: PER_SIDE });
     const shown = [...before, ...after];
 
@@ -489,7 +522,7 @@ export function createGasPanel({ settings, getMap, onChange, utcOffsetAt = () =>
     };
     const reach = (d) => formatDistance(Math.min(d, SEARCH_SPAN_M), unit);
     const noun = wanted.size ? 'truck stops' : 'stations';
-    if (!before.length && after.length && state.load.complete) {
+    if (!before.length && after.length && listDone) {
       items.push(sideNote(rStart <= from + 1
         ? `No ${noun} between here and ${formatDistance(target, unit)}.`
         : `No ${noun} within ${reach(target)} before your target.`));
@@ -498,7 +531,7 @@ export function createGasPanel({ settings, getMap, onChange, utcOffsetAt = () =>
     if (state.trip && (before.length || after.length)) items.push(targetDivider(target, from));
     after.forEach((s, i) =>
       items.push(stationItem(s, before.length + i, s.along - from, gapAfterStation.get(s.id), target)));
-    if (before.length && !after.length && state.load.complete) {
+    if (before.length && !after.length && listDone) {
       const routeEnd = route.cumDist[route.cumDist.length - 1];
       items.push(sideNote(rEnd >= routeEnd - 1
         ? `No ${noun} past ${formatDistance(target, unit)} on this route.`
@@ -509,6 +542,9 @@ export function createGasPanel({ settings, getMap, onChange, utcOffsetAt = () =>
 
     if (shown.length) {
       el.empty.hidden = true;
+    } else if (!listDone) {
+      el.empty.textContent = wanted.size ? 'Finding truck stops…' : 'Finding gas stations…';
+      el.empty.hidden = false;
     } else {
       el.empty.textContent = `No ${wanted.size ? 'truck stops' : 'gas stations'} from ${formatMarker(rStart, unit)} to ${formatMarker(rEnd, unit)}.`;
       el.empty.hidden = false;
@@ -548,20 +584,28 @@ export function createGasPanel({ settings, getMap, onChange, utcOffsetAt = () =>
     state.detours = new Map(savedDetours ?? []);
     detourQueue = [];
     loader?.cancel();
+    truckLoader?.cancel();
+    truckLoader = null;
+    state.mainStations = null;
+    state.truckExtra = null;
     const onUpdate = (update) => {
       if (generation !== state.generation) return;
       // TomTom measures detours itself.
       for (const st of update.stations) {
         if (st.detour && typeof state.detours.get(st.id) !== 'object') state.detours.set(st.id, st.detour);
       }
-      state.stations = update.stations;
+      state.mainStations = update.stations;
       state.load = update;
+      combine();
       render();
     };
     // OpenStreetMap stations, from Overpass: the backup, and what saved trips use offline.
     const useOsm = () => {
       if (generation !== state.generation) return;
       loader?.cancel();
+      truckLoader?.cancel();
+      truckLoader = null;
+      state.truckExtra = null;
       source = 'osm';
       loader = createStationLoader(trip.route, MAX_STATION_RADIUS, onUpdate);
       updateRange();
@@ -570,6 +614,7 @@ export function createGasPanel({ settings, getMap, onChange, utcOffsetAt = () =>
     if (TOMTOM_KEY) {
       source = 'tomtom';
       loader = createTomTomStationLoader(trip.route, MAX_STATION_RADIUS, onUpdate, { onUnavailable: useOsm });
+      if (wanted.has('truckStop')) startTruckLoader();
     } else {
       source = 'osm';
       loader = createStationLoader(trip.route, MAX_STATION_RADIUS, onUpdate);
@@ -583,8 +628,12 @@ export function createGasPanel({ settings, getMap, onChange, utcOffsetAt = () =>
     state.generation += 1;
     loader?.cancel();
     loader = null;
+    truckLoader?.cancel();
+    truckLoader = null;
     state.trip = null;
     state.stations = null;
+    state.mainStations = null;
+    state.truckExtra = null;
     state.load = null;
     state.detours = new Map();
     detourQueue = [];
@@ -616,6 +665,7 @@ export function createGasPanel({ settings, getMap, onChange, utcOffsetAt = () =>
   function retryFailed() {
     if (!state.trip) return;
     loader?.retry();
+    truckLoader?.retry();
     for (const [id, d] of state.detours) if (d === 'error') state.detours.delete(id);
     render();
   }

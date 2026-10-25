@@ -6,7 +6,7 @@ import { tomtomHours, hoursStatus } from '../js/hours.js';
 
 installLocalStorage();
 const {
-  toStation, mergeStations, isFuelStop, isRestroomStop, toRestroomStop, searchAll, createTomTomStationLoader, CATEGORY,
+  toStation, mergeStations, isFuelStop, isRestroomStop, toRestroomStop, createTomTomStationLoader, CATEGORY,
 } = await import('../js/tomtom-places.js');
 
 const route = straightRoute(60);
@@ -83,21 +83,44 @@ test('mergeStations: a nearby truck-stop listing for a different business is not
   assert.equal(merged[0].amenities.truckStop, false);
 });
 
-test('searchAll splits a stretch while answers come back full', async () => {
-  // 20 results (full) for any stretch longer than 15 km, otherwise 3.
-  let depthCalls = 0;
-  handler = (url, body) => {
-    depthCalls++;
+// Like TomTom: up to 20 places, filled from the start of the stretch searched.
+function fillFromStart(stationMiles) {
+  return (url, body) => {
     const pts = body.route.points;
-    const lonSpan = Math.abs(pts.at(-1).lon - pts[0].lon);
-    const km = lonSpan * 111.32 * Math.cos((39 * Math.PI) / 180);
-    const count = km > 15 ? 20 : 3;
-    return ok(Array.from({ length: count }, (_, i) => result(`${depthCalls}-${i}`, 1)));
+    const lonA = pts[0].lon, lonB = pts.at(-1).lon;
+    const inStretch = stationMiles.filter((m) => {
+      const [lon] = pointAlong(route, m * MI);
+      return lon >= Math.min(lonA, lonB) - 1e-6 && lon <= Math.max(lonA, lonB) + 1e-6;
+    });
+    return ok(inStretch.slice(0, 20).map((m) => result(`m${m}`, m)));
   };
-  const out = await searchAll(route, 0, 25000, { query: '*', categorySet: '7311' });
-  // 25 km is full, its two 12.5 km halves aren't: 1 + 2 searches, 3 + 3 results.
-  assert.equal(depthCalls, 3);
-  assert.equal(out.length, 6);
+}
+
+test('a full answer is followed by a search from the last place found, not a split', async () => {
+  // 30 stations between miles 5 and 20 (one every half mile), then 3 more.
+  const miles = [...Array.from({ length: 30 }, (_, i) => 5 + i * 0.5), 30, 40, 50];
+  handler = fillFromStart(miles);
+  const updates = [];
+  const loader = createTomTomStationLoader(route, 5 * MI, (u) => updates.push(u));
+  loader.setRange(0, 55 * MI);
+  await until(() => updates.at(-1)?.complete);
+  assert.equal(calls.length, 2);   // miles 0–55 (full, last at 14.5), then 14.5–55
+  assert.equal(updates.at(-1).stations.length, miles.length);
+});
+
+test('a quiet stretch takes one search, and moving the range only searches the new part', async () => {
+  handler = fillFromStart([10, 25, 40]);
+  const updates = [];
+  const loader = createTomTomStationLoader(route, 5 * MI, (u) => updates.push(u));
+  loader.setRange(0, 30 * MI);
+  await until(() => updates.at(-1)?.complete);
+  assert.equal(calls.length, 1);
+  loader.setRange(20 * MI, 50 * MI);
+  await until(() => updates.at(-1)?.complete && updates.at(-1).range[1] === 50 * MI);
+  assert.equal(calls.length, 2);
+  const [first] = calls.at(-1).points;
+  const [lon30] = pointAlong(route, 30 * MI);
+  assert.ok(Math.abs(first.lon - lon30) < 0.001);   // started at mile 30, where the last search ended
 });
 
 test('the loader searches only the segments in range and reports stations along the route', async () => {
@@ -108,7 +131,7 @@ test('the loader searches only the segments in range and reports stations along 
   await until(() => updates.at(-1)?.complete);
   const last = updates.at(-1);
   assert.equal(last.complete, true);
-  assert.equal(calls.length, 2);   // gas stations + truck stops, one segment
+  assert.equal(calls.length, 1);   // one search: gas stations and truck stops, one segment
   assert.equal(last.stations.length, 1);
   assert.ok(Math.abs(last.stations[0].along - 12 * MI) < 200);
 });
@@ -150,4 +173,16 @@ test('restroom stops: rest areas and real truck stops, with tidy rest-area names
   const signs = result('s', 5, { name: 'Rest Area: Truckee Welcome Center Follow Signs', brand: null, cats: [CATEGORY.restArea] });
   assert.equal(toRestroomStop(signs).name, 'Rest Area: Truckee Welcome Center');
   assert.equal(toRestroomStop(truck).kind, 'truck');
+});
+
+test('driving on searches every 15 miles or so, not on every position update', async () => {
+  handler = fillFromStart([5, 15, 25, 35, 45]);
+  const updates = [];
+  const loader = createTomTomStationLoader(route, 5 * MI, (u) => updates.push(u));
+  for (let at = 0; at <= 20 * MI; at += 0.25 * MI) {
+    loader.setRange(at, at + 15 * MI);
+    await until(() => updates.at(-1)?.complete, 2000);
+  }
+  // Miles 0–35 in searches of at least 15 miles: 3 or fewer, not 80.
+  assert.ok(calls.length <= 3, `made ${calls.length} searches`);
 });

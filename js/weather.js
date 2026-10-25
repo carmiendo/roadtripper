@@ -135,6 +135,78 @@ export async function namePoints(points, onName) {
 }
 
 // ---------- NWS alerts ----------
+// One request per state for its active alerts, kept only where they cover a
+// forecast point: by the alert's outline when it has one, otherwise by the
+// NWS zones (forecast zone, county, fire zone) the point is in. Each point's
+// zones come from NWS's /points lookup once, then from this browser's cache:
+// zone lines rarely move, so later trips on the same roads need no lookups.
+
+const ZONES_KEY = 'roadtripper.nwsZones.v1';
+const ZONES_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+const NO_ZONES_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;   // outside NWS coverage
+const ZONES_MAX = 600;
+const NWS_HEADERS = { headers: { Accept: 'application/geo+json' } };
+
+const zoneKey = (p) => `${p.lat.toFixed(2)},${p.lon.toFixed(2)}`;   // about 1 km
+
+function readZones() {
+  try { return JSON.parse(localStorage.getItem(ZONES_KEY) || '{}'); } catch { return {}; }
+}
+
+function writeZones(all) {
+  try {
+    const keys = Object.keys(all);
+    for (const k of keys.slice(0, Math.max(0, keys.length - ZONES_MAX))) delete all[k];
+    localStorage.setItem(ZONES_KEY, JSON.stringify(all));
+  } catch { /* storage unavailable */ }
+}
+
+const lastPart = (url) => (url ? String(url).split('/').pop() : null);
+
+/** {state, zones: string[]} for a point, or null outside NWS coverage. */
+async function zonesFor(p, cache) {
+  const key = zoneKey(p);
+  const hit = cache[key];
+  if (hit && Date.now() - hit.at < (hit.state ? ZONES_MAX_AGE_MS : NO_ZONES_MAX_AGE_MS)) {
+    return hit.state ? hit : null;
+  }
+  try {
+    const data = await fetchJson(`${NWS}/points/${p.lat.toFixed(4)},${p.lon.toFixed(4)}`, NWS_HEADERS);
+    const pr = data.properties || {};
+    const entry = {
+      at: Date.now(),
+      state: pr.relativeLocation?.properties?.state || null,
+      zones: [pr.forecastZone, pr.county, pr.fireWeatherZone].map(lastPart).filter(Boolean),
+    };
+    cache[key] = entry;
+    return entry.state ? entry : null;
+  } catch (err) {
+    if (err.status === 400 || err.status === 404) cache[key] = { at: Date.now(), state: null, zones: [] };
+    return null;   // a temporary failure isn't cached
+  }
+}
+
+// Ray casting; rings are [lon, lat] arrays, the first is the outline, the rest holes.
+function inRing([x, y], ring) {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const [xi, yi] = ring[i];
+    const [xj, yj] = ring[j];
+    if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+const inPolygon = (pt, rings) => inRing(pt, rings[0]) && !rings.slice(1).some((h) => inRing(pt, h));
+
+/** Whether an alert covers a point (exported for tests). */
+export function alertCovers(feature, point, zones) {
+  const g = feature.geometry;
+  const pt = [point.lon, point.lat];
+  if (g?.type === 'Polygon') return inPolygon(pt, g.coordinates);
+  if (g?.type === 'MultiPolygon') return g.coordinates.some((rings) => inPolygon(pt, rings));
+  const ugc = feature.properties?.geocode?.UGC || [];
+  return zones.some((z) => ugc.includes(z));
+}
 
 /**
  * Active NWS alerts at any of the points. US only; points outside NWS
@@ -142,19 +214,28 @@ export async function namePoints(points, onName) {
  * @returns {Promise<{alerts: Array<object>, covered: boolean}>}
  */
 export async function fetchAlerts(points) {
+  const cache = readZones();
+  const info = new Array(points.length).fill(null);
+  await eachLimited(points, 4, async (p, i) => { info[i] = await zonesFor(p, cache); });
+  writeZones(cache);
+
+  const states = [...new Set(info.filter(Boolean).map((z) => z.state))];
   const byId = new Map();
   let covered = false;
-  await eachLimited(points, 4, async (p) => {
+  await Promise.all(states.map(async (st) => {
+    let data;
     try {
-      const data = await fetchJson(
-        `${NWS}/alerts/active?point=${p.lat.toFixed(4)},${p.lon.toFixed(4)}`,
-        { headers: { Accept: 'application/geo+json' } },
-      );
-      covered = true;
-      for (const f of data.features || []) {
-        const a = f.properties;
+      data = await fetchJson(`${NWS}/alerts/active?area=${encodeURIComponent(st)}`, NWS_HEADERS);
+    } catch {
+      return;   // that state's alerts are missing this time
+    }
+    covered = true;
+    for (const f of data.features || []) {
+      const a = f.properties;
+      points.forEach((p, i) => {
+        if (info[i]?.state !== st || !alertCovers(f, p, info[i].zones)) return;
         const existing = byId.get(a.id);
-        if (existing) { existing.alongs.push(p.along); continue; }
+        if (existing) { if (!existing.alongs.includes(p.along)) existing.alongs.push(p.along); return; }
         byId.set(a.id, {
           id: a.id,
           event: a.event,
@@ -167,11 +248,9 @@ export async function fetchAlerts(points) {
           ends: a.ends ? new Date(a.ends) : a.expires ? new Date(a.expires) : null,
           alongs: [p.along],
         });
-      }
-    } catch {
-      // Outside the US (400/404) or a temporary failure for this point.
+      });
     }
-  });
+  }));
   const order = { Extreme: 0, Severe: 1, Moderate: 2, Minor: 3, Unknown: 4 };
   const alerts = [...byId.values()].sort((a, b) =>
     (order[a.severity] ?? 4) - (order[b.severity] ?? 4) || Math.min(...a.alongs) - Math.min(...b.alongs));

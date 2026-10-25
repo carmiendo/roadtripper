@@ -176,7 +176,6 @@ export function createRestroomsPanel({ settings }) {
         keep: isRestroomStop,
         convert: toRestroomStop,
         service: 'Restroom stops',
-        segmentM: 100000,   // rest areas and truck stops are sparse; full answers still get split
         onUnavailable: () => {
           if (generation !== state.generation) return;
           state.unavailable = true;

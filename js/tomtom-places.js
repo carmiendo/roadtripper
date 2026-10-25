@@ -6,11 +6,12 @@
 // beyond the current page; the Overpass loader in stations.js is the backup
 // and covers saved trips and offline use.
 //
-// Each search returns at most 20 places, nearest detour first. To avoid
-// missing places (which would show up as false "no gas" gaps), the route is
-// searched in 25 km segments, and a segment that comes back full is split in
-// half and searched again, down to about 6 km. A piece that's still full has
-// 20+ places in a few km, so nothing missing there can make a gap.
+// Each search returns at most 20 places, filled from the start of the stretch
+// searched. So a stretch is searched once, and if the answer is full, again
+// from the last place found: on a quiet road one search covers it, and busy
+// stretches take one more search per 20 or so places. Nothing is skipped, so
+// there are no false "no gas" gaps. Only stretches not yet searched are
+// searched when your target or position moves.
 
 import { TOMTOM_KEY } from './config.js';
 import { createRouteIndex, sliceAlong } from './geo.js';
@@ -20,9 +21,10 @@ import { TRUCK_STOP_BRANDS } from './stations.js';
 
 const SEARCH = 'https://api.tomtom.com/search/2/searchAlongRoute';
 const LIMIT = 20;                 // TomTom's maximum per search
-const SEGMENT_M = 25000;
-const MIN_PIECE_M = 6000;         // stop splitting full answers below this
-const MAX_DETOUR_S = 900;         // places at most a 15-minute detour away
+const MIN_SEARCH_M = 24000;       // search at least this far ahead (about 15 mi), so driving on doesn't search every few seconds
+const MAX_SEARCH_M = 250000;      // longest stretch sent in one search
+const MIN_ADVANCE_M = 2000;       // if 20+ places sit within this, move on past them
+const MAX_DETOUR_S = 600;         // places at most a 10-minute detour away
 const MAX_POINTS = 400;           // route points sent per search
 const PARALLEL_REQUESTS = 3;
 const TIMEOUT_MS = 15000;
@@ -35,14 +37,11 @@ export const CATEGORY = { gas: 7311, truckStop: 7358, restArea: 7395 };
 // category"; words narrow it to names that match ("gas station" finds only a
 // few stations with "Gas" in their names and misses the big brands).
 export const SEARCHES = {
-  gas: [
-    { query: '*', categorySet: `${CATEGORY.gas},${CATEGORY.truckStop}` },
-    { query: '*', categorySet: `${CATEGORY.truckStop}` },
-  ],
-  restrooms: [
-    { query: '*', categorySet: `${CATEGORY.restArea}` },
-    { query: '*', categorySet: `${CATEGORY.truckStop}` },
-  ],
+  gas: [{ query: '*', categorySet: `${CATEGORY.gas},${CATEGORY.truckStop}` }],
+  // Only while the Truck stop filter is on: in busy stretches the gas search
+  // fills up with ordinary stations, so look for truck stops on their own too.
+  truckStops: [{ query: '*', categorySet: `${CATEGORY.truckStop}` }],
+  restrooms: [{ query: '*', categorySet: `${CATEGORY.restArea},${CATEGORY.truckStop}` }],
 };
 
 /** Thrown when TomTom can't be used right now (no key, refused, offline). */
@@ -109,18 +108,6 @@ async function searchStretch(route, from, to, search, attempt = 0, service = 'Ga
   }
   const data = await res.json();
   return data.results || [];
-}
-
-/**
- * All places in a stretch, splitting it while answers come back full.
- * @returns {Promise<object[]>} TomTom results
- */
-export async function searchAll(route, from, to, search, service) {
-  const results = await searchStretch(route, from, to, search, 0, service);
-  if (results.length < LIMIT || to - from <= MIN_PIECE_M) return results;
-  const mid = (from + to) / 2;
-  const [a, b] = await Promise.all([searchAll(route, from, mid, search, service), searchAll(route, mid, to, search, service)]);
-  return [...a, ...b];
 }
 
 export const hasCategory = (r, id) => (r.poi?.categorySet || []).some((c) => c.id === id);
@@ -223,6 +210,40 @@ export function mergeStations(list) {
   return out;
 }
 
+// ---------- Stretches along the route ----------
+// Lists of [from, to] in meters along the route, kept sorted and merged.
+
+function addSpan(list, a, b) {
+  if (b <= a) return list;
+  const out = [];
+  let [na, nb] = [a, b];
+  for (const [x, y] of list) {
+    if (y < na - 1 || x > nb + 1) out.push([x, y]);
+    else { na = Math.min(na, x); nb = Math.max(nb, y); }
+  }
+  out.push([na, nb]);
+  return out.sort((p, q) => p[0] - q[0]);
+}
+
+/** Parts of [a, b] not in any of `lists`. */
+function missingSpans([a, b], ...lists) {
+  let parts = [[a, b]];
+  for (const list of lists) {
+    for (const [x, y] of list) {
+      const next = [];
+      for (const [p, q] of parts) {
+        if (y <= p || x >= q) { next.push([p, q]); continue; }
+        if (x > p) next.push([p, x]);
+        if (y < q) next.push([y, q]);
+      }
+      parts = next;
+    }
+  }
+  return parts.filter(([p, q]) => q - p > 1);
+}
+
+const overlaps = (list, [a, b]) => list.some(([x, y]) => x < b && y > a);
+
 /**
  * Same interface as createStationLoader in stations.js.
  * onUnavailable(err) is called once if TomTom can't be used, so the caller
@@ -234,59 +255,74 @@ export function createTomTomStationLoader(route, radius, onUpdate, {
   keep = isFuelStop,
   convert = toStation,
   service = 'Gas stations',
-  segmentM = SEGMENT_M,   // longer for sparse places, like rest areas
 } = {}) {
-  const SEGMENT_M = segmentM;
+  const [search] = searches;
   const total = route.cumDist[route.cumDist.length - 1];
-  const lastSeg = Math.floor(Math.max(0, total - 1) / SEGMENT_M);
   const index = createRouteIndex(route, radius);
-  const segs = new Map();   // seg -> {status: 'ok'|'pending'|'failed', raw}
+  const found = new Map();   // id -> station (with along, offRoute)
+  let covered = [];          // stretches fully searched
+  let busy = [];             // stretches being searched
+  let failed = [];           // stretches whose search failed
   let range = [0, 0];
   let extra = [];
   let cancelled = false;
   let unavailable = false;
   let inFlight = 0;
 
-  const segsIn = ([from, to]) => {
-    const out = [];
-    for (let k = Math.max(0, Math.floor(from / SEGMENT_M)); k <= Math.min(lastSeg, Math.floor(to / SEGMENT_M)); k++) out.push(k);
-    return out;
-  };
-  const wantedSegs = () => [...new Set([...extra.flatMap(segsIn), ...segsIn(range)])].sort((a, b) => a - b);
+  const wanted = () => [range, ...extra].filter(([a, b]) => b > a);
 
   function report() {
     if (cancelled || unavailable) return;
-    let complete = true, loading = false, failed = false;
-    const raw = [];
-    for (const k of wantedSegs()) {
-      const seg = segs.get(k);
-      if (seg?.status === 'ok') raw.push(...seg.raw);
-      else {
-        complete = false;
-        if (!seg || seg.status === 'pending') loading = true;
-        else failed = true;
-      }
+    let complete = true, loading = false, anyFailed = false;
+    for (const span of wanted()) {
+      const left = missingSpans(span, covered);
+      if (!left.length) continue;
+      complete = false;
+      if (left.some((p) => overlaps(failed, p))) anyFailed = true;
+      if (left.some((p) => !overlaps(failed, p))) loading = true;
     }
-    const stations = [];
-    for (const st of mergeStations(raw)) {
-      const p = index.project([st.lon, st.lat]);
-      if (p && p.offRoute <= radius) stations.push({ ...st, along: p.along, offRoute: p.offRoute });
-    }
-    stations.sort((a, b) => a.along - b.along);
-    onUpdate({ stations, range: [...range], complete, loading, failed, stale: false });
+    const stations = mergeStations([...found.values()]).sort((a, b) => a.along - b.along);
+    onUpdate({ stations, range: [...range], complete, loading, failed: anyFailed, stale: false });
   }
 
-  async function fetchSeg(k) {
+  function addResults(results) {
+    for (const r of results) {
+      if (!keep(r)) continue;
+      const st = convert(r);
+      if (found.has(st.id)) continue;
+      const p = index.project([st.lon, st.lat]);
+      if (p && p.offRoute <= radius) found.set(st.id, { ...st, along: p.along, offRoute: p.offRoute });
+    }
+  }
+
+  // Search [a, b], continuing from the last place found while answers are full.
+  async function searchSpan(a, b) {
     inFlight++;
-    const from = k * SEGMENT_M;
-    const to = Math.min(total, from + SEGMENT_M);
+    const job = [a, b];
+    busy.push(job);
     try {
-      const lists = await Promise.all(searches.map((s) => searchAll(route, from, to, s, service)));
-      if (cancelled) return;
-      segs.set(k, { status: 'ok', raw: lists.flat().filter(keep).map(convert) });
+      let at = a;
+      while (at < b - 1) {
+        const results = await searchStretch(route, at, b, search, 0, service);
+        if (cancelled) return;
+        addResults(results);
+        let next = b;
+        if (results.length >= LIMIT) {
+          // Full: the answer reaches as far as its farthest place.
+          const reach = Math.max(...results.map((r) => {
+            const p = index.project([r.position.lon, r.position.lat]);
+            return p ? p.along : at + (r.dist || 0);
+          }));
+          next = Math.min(b, Math.max(at + MIN_ADVANCE_M, reach - 100));
+        }
+        covered = addSpan(covered, at, next);
+        at = next;
+        job[0] = at;
+        report();
+      }
     } catch (err) {
       if (cancelled) return;
-      segs.set(k, { status: 'failed', raw: [] });
+      failed = addSpan(failed, job[0], b);
       if (err instanceof TomTomUnavailable && !unavailable) {
         unavailable = true;
         onUnavailable?.(err);
@@ -294,6 +330,7 @@ export function createTomTomStationLoader(route, radius, onUpdate, {
       }
     } finally {
       inFlight--;
+      busy = busy.filter((j) => j !== job);
     }
     report();
     pump();
@@ -301,11 +338,15 @@ export function createTomTomStationLoader(route, radius, onUpdate, {
 
   function pump() {
     if (cancelled || unavailable) return;
-    const missing = wantedSegs().filter((k) => !segs.has(k));
-    while (inFlight < PARALLEL_REQUESTS && missing.length) {
-      const k = missing.shift();
-      segs.set(k, { status: 'pending', raw: [] });
-      fetchSeg(k);
+    for (const span of wanted()) {
+      for (const [a, b0] of missingSpans(span, covered, busy, failed)) {
+        if (inFlight >= PARALLEL_REQUESTS) return;
+        // Search a little past what's needed, so moving on a bit doesn't
+        // start a search right away; long stretches go in a few searches.
+        let b = Math.min(total, Math.max(b0, a + MIN_SEARCH_M));
+        b = Math.min(b, a + MAX_SEARCH_M);
+        searchSpan(a, b);
+      }
     }
   }
 
@@ -317,7 +358,7 @@ export function createTomTomStationLoader(route, radius, onUpdate, {
       report();
     },
     retry() {
-      for (const k of wantedSegs()) if (segs.get(k)?.status === 'failed') segs.delete(k);
+      failed = [];
       pump();
       report();
     },

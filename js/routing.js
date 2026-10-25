@@ -248,10 +248,26 @@ export async function getRoute(from, to, departAt, { noTraffic = false } = {}) {
 
 let captionPromise = null;
 /** TomTom's copyright line from its Copyright API (its terms ask apps to show it). */
+// TomTom's answer allows keeping it for a day (Cache-Control: max-age=86400).
+const CAPTION_KEY = 'roadtripper.tomtomCaption.v1';
+const CAPTION_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
 export function tomtomCopyright() {
   if (!TOMTOM_KEY) return Promise.resolve(null);
+  if (!captionPromise) {
+    try {
+      const saved = JSON.parse(localStorage.getItem(CAPTION_KEY) || 'null');
+      if (saved?.text && Date.now() - saved.at < CAPTION_MAX_AGE_MS) captionPromise = Promise.resolve(saved.text);
+    } catch { /* storage unavailable */ }
+  }
   captionPromise ??= fetchJson(`https://api.tomtom.com/map/2/copyrights/caption.json?key=${TOMTOM_KEY}`)
-    .then((d) => d.copyrightsCaption || null)
+    .then((d) => {
+      const text = d.copyrightsCaption || null;
+      if (text) {
+        try { localStorage.setItem(CAPTION_KEY, JSON.stringify({ text, at: Date.now() })); } catch { /* ignore */ }
+      }
+      return text;
+    })
     .catch(() => { captionPromise = null; return null; });
   return captionPromise;
 }
