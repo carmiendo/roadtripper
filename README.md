@@ -48,6 +48,15 @@ Free; all but TomTom work without an API key:
 
 Map and station data © OpenStreetMap contributors, available under the [Open Database License](https://www.openstreetmap.org/copyright). Weather data by Open-Meteo.com, under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). App icon based on the 🚙 emoji from [Twemoji](https://github.com/jdecked/twemoji), under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
 
+## Dev site
+
+[roadtripper.quest/dev/](https://roadtripper.quest/dev/) is published from the `dev` branch (or `main` if there's no `dev` branch) and never uses the TomTom key. In its Settings, under "Dev site", pick where gas and restroom stops come from:
+
+- **Made-up data** (default): TomTom requests are answered in the browser with fake stations and rest stops that act like TomTom (at most 20 per search, filled from the start of the stretch, with detours and hours). Routes are real OSRM routes with 10% made-up traffic.
+- **OpenStreetMap**: TomTom is skipped; gas stations come from Overpass, and there are no restroom stops.
+
+Settings also lists how many requests each service got since the page opened, and each TomTom request. The dev site's saved trips and settings are kept apart from the live app's. Serving the folder on `localhost` works the same way.
+
 ## Running locally
 
 Plain HTML, CSS, and JavaScript with no build step. Serve the folder over HTTP (ES modules don't load from `file://`):
@@ -70,9 +79,9 @@ They cover the route math, gap warnings, the stations picked around your target,
 
 ## Deployment
 
-GitHub Pages, published by the Deploy workflow (`.github/workflows/deploy.yml`) on every push to `main`. It runs the tests, copies the site files, and writes the TomTom key from the repository secret `TOMTOM_KEY` into the published `js/config.js`. The key never goes in the repo; it is visible on the live site, so it's restricted to roadtripper.quest in TomTom's Key Management page. Without the secret, the site publishes with traffic off.
+GitHub Pages, published by the Deploy workflow (`.github/workflows/deploy.yml`) on every push to `main` or `dev`; it publishes `main` at the root and `dev` at `/dev/`. It runs the tests, copies the site files, and writes the TomTom key from the repository secret `TOMTOM_KEY` into the published `js/config.js`. The key never goes in the repo; it is visible on the live site, so it's restricted to roadtripper.quest in TomTom's Key Management page. Without the secret, the site publishes with traffic off.
 
-Locally, `js/config.js` has no key, so routes use OSRM. To try TomTom locally, put a key in it temporarily and don't commit it.
+Locally, the site runs as the dev site (see above), so it never needs the key.
 
 ## License
 

@@ -15,6 +15,8 @@
 //   weather.js   Open-Meteo forecasts and NWS alerts
 //   weather-panel.js  the "Weather ahead" panel
 
+import './dev.js';   // first: on the dev site, separates saved data and answers TomTom requests
+import { setupDevPanel } from './dev-panel.js';
 import { suggestPlaces, searchPlaces, reversePlace } from './geocode.js';
 import { getRoute, tomtomCopyright } from './routing.js';
 import { TOMTOM_KEY } from './config.js';
@@ -802,6 +804,7 @@ function init() {
     onChooseDeparture: setDeparture,
   });
   setupSettings();
+  setupDevPanel();
   setupSections();
   roads = createRoadsPanel({ settings, getMap: () => map });
   const restored = restoreTrip();

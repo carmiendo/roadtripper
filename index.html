@@ -42,6 +42,8 @@
   <link rel="modulepreload" href="js/weather.js">
   <link rel="modulepreload" href="js/tomtom-places.js">
   <link rel="modulepreload" href="js/restrooms-panel.js">
+  <link rel="modulepreload" href="js/dev.js">
+  <link rel="modulepreload" href="js/dev-panel.js">
   <link rel="modulepreload" href="js/weather-panel.js">
   <!-- Open connections early to the services the first actions use. -->
   <link rel="preconnect" href="https://photon.komoot.io" crossorigin>
@@ -52,7 +54,7 @@
   <header class="site-header">
     <div class="wrap header-row">
       <div>
-        <h1 class="brand">Roadtripper</h1>
+        <h1 class="brand">Roadtripper<span class="dev-badge" hidden>Dev</span></h1>
         <p class="tagline">Gas and weather for the road ahead</p>
       </div>
       <button type="button" class="icon-button" id="open-settings" aria-label="Settings">
@@ -241,6 +243,25 @@
           <button type="button" class="link-button" id="problems-clear">Clear</button>
         </div>
         <textarea class="problems-text" id="problems-text" readonly hidden aria-label="Problem log"></textarea>
+      </fieldset>
+
+      <fieldset id="dev-settings" hidden>
+        <legend>Dev site</legend>
+        <p class="setting-label">Gas and restroom stops come from</p>
+        <div class="segmented">
+          <label><input type="radio" name="devSource" value="fake"><span>Made-up data</span></label>
+          <label><input type="radio" name="devSource" value="osm"><span>OpenStreetMap</span></label>
+        </div>
+        <p class="fineprint">The dev site never uses the TomTom key. Made-up data answers TomTom requests here, with fake stations and rest stops. OpenStreetMap skips TomTom and uses real stations (no restroom stops). Changing this reloads the page.</p>
+        <p class="setting-label" id="dev-summary">No requests yet.</p>
+        <ul class="dev-counts" id="dev-counts"></ul>
+        <details class="dev-log">
+          <summary>TomTom requests</summary>
+          <ol id="dev-log"></ol>
+        </details>
+        <div class="problems-actions">
+          <button type="button" class="link-button" id="dev-clear">Clear counts</button>
+        </div>
       </fieldset>
 
       <p class="fineprint">Settings and the problem log are saved in this browser only.</p>

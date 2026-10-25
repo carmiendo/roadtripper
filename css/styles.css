@@ -1041,3 +1041,21 @@ legend { padding: 0; margin-bottom: 0.5rem; font-weight: 700; }
 .gas-target-input input { -moz-appearance: textfield; appearance: textfield; }
 .gas-target-input input::-webkit-outer-spin-button,
 .gas-target-input input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+
+/* Dev site */
+.dev-badge {
+  margin-left: 0.5rem;
+  padding: 0.1rem 0.45rem;
+  border-radius: 6px;
+  background: #ffd54f;
+  color: #3e2a00;
+  font-size: 0.8rem;
+  font-weight: 700;
+  vertical-align: middle;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+.dev-counts { margin: 0.25rem 0 0.5rem; padding: 0; list-style: none; font-size: 0.9rem; }
+#dev-log { margin: 0.25rem 0 0.5rem; padding-left: 1.2rem; }
+#dev-log { font-size: 0.8rem; color: var(--muted); }
+.dev-log summary { cursor: pointer; font-weight: 600; margin: 0.25rem 0; }

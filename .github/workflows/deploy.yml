@@ -1,12 +1,17 @@
-# Publishes the site to GitHub Pages on every push to main.
+# Publishes the site to GitHub Pages:
+#   roadtripper.quest       the main branch, with the TomTom key
+#   roadtripper.quest/dev/  the dev branch (or main, if there's no dev branch),
+#                           without any key: its TomTom requests get made-up answers
+# Runs on every push to main or dev, so both copies are always current.
+#
 # The TomTom key lives in the repository secret TOMTOM_KEY and is written into
-# js/config.js only in the published copy, so it never appears in the repo.
+# js/config.js only in the published main copy, so it never appears in the repo.
 # (It is still visible on the live site, so restrict the key to
 # roadtripper.quest in TomTom's Key Management page.)
 name: Deploy
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
   workflow_dispatch:
 
 permissions:
@@ -22,30 +27,69 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Check out main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: main-src
+      - name: Check out dev
+        id: dev
+        continue-on-error: true
+        uses: actions/checkout@v4
+        with:
+          ref: dev
+          path: dev-src
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Run tests
+      - name: Run tests (main)
+        working-directory: main-src
+        run: npm test
+      - name: Run tests (dev)
+        if: steps.dev.outcome == 'success'
+        working-directory: dev-src
         run: npm test
       - name: Copy site files
         run: |
-          mkdir _site
-          cp -r index.html manifest.webmanifest sw.js CNAME .nojekyll css icons js _site/
-      - name: Add TomTom key
+          files="index.html manifest.webmanifest sw.js css icons js"
+          mkdir -p _site/dev
+          (cd main-src && cp -r $files CNAME .nojekyll ../_site/)
+          src=main-src
+          if [ -d dev-src/js ]; then src=dev-src; fi
+          (cd $src && cp -r $files ../_site/dev/)
+      - name: Add TomTom key to the live copy
         env:
           TOMTOM_KEY: ${{ secrets.TOMTOM_KEY }}
         run: |
           if [ -z "$TOMTOM_KEY" ]; then
-            echo "No TOMTOM_KEY secret; publishing without traffic."
+            echo "No TOMTOM_KEY secret; publishing without TomTom."
             exit 0
           fi
           if ! printf '%s' "$TOMTOM_KEY" | grep -Eq '^[A-Za-z0-9]+$'; then
             echo "TOMTOM_KEY should be letters and digits only." >&2
             exit 1
           fi
-          sed -i "s/^export const TOMTOM_KEY = '';$/export const TOMTOM_KEY = '$TOMTOM_KEY';/" _site/js/config.js
-          grep -q "TOMTOM_KEY = '.\+'" _site/js/config.js || { echo "Couldn't set the key in js/config.js." >&2; exit 1; }
+          f=_site/js/config.js
+          if grep -q "^export const RELEASE_KEY = '';$" $f; then
+            sed -i "s/^export const RELEASE_KEY = '';$/export const RELEASE_KEY = '$TOMTOM_KEY';/" $f
+          else
+            sed -i "s/^export const TOMTOM_KEY = '';$/export const TOMTOM_KEY = '$TOMTOM_KEY';/" $f
+          fi
+          grep -Eq "(RELEASE_KEY|TOMTOM_KEY) = '.+'" $f || { echo "Couldn't set the key in js/config.js." >&2; exit 1; }
+      - name: Mark the dev copy
+        run: |
+          f=_site/dev/js/config.js
+          sed -i "s/^export const DEV_BUILD = false;$/export const DEV_BUILD = true;/" $f
+          if ! grep -q "DEV_BUILD = true" $f; then
+            # A dev branch from before the dev site existed: make sure it has no key.
+            sed -i "s/^export const TOMTOM_KEY = .*;$/export const TOMTOM_KEY = '';/" $f
+          fi
+          # Never publish a key in the dev copy.
+          if [ -n "$TOMTOM_KEY" ] && grep -rq "$TOMTOM_KEY" _site/dev; then
+            echo "The dev copy contains the TomTom key." >&2; exit 1
+          fi
+        env:
+          TOMTOM_KEY: ${{ secrets.TOMTOM_KEY }}
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site

@@ -21,6 +21,8 @@ const SHELL = [
   'css/styles.css',
   'js/app.js',
   'js/config.js',
+  'js/dev.js',
+  'js/dev-panel.js',
   'js/format.js',
   'js/gas.js',
   'js/geo.js',
@@ -73,6 +75,10 @@ self.addEventListener('fetch', (event) => {
   const req = event.request;
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
+
+  // The dev site at /dev/ has its own service worker; leave its pages alone.
+  const base = new URL('./', self.location).pathname;
+  if (url.origin === self.location.origin && url.pathname.startsWith(`${base}dev/`)) return;
 
   if (url.origin === self.location.origin) {
     event.respondWith(staleWhileRevalidate(event, SHELL_CACHE, req.mode === 'navigate'));
