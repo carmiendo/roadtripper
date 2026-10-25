@@ -15,7 +15,7 @@
 //   weather.js   Open-Meteo forecasts and NWS alerts
 //   weather-panel.js  the "Weather ahead" panel
 
-import { searchPlaces, reversePlace } from './geocode.js';
+import { suggestPlaces, searchPlaces, reversePlace } from './geocode.js';
 import { getRoute, tomtomCopyright } from './routing.js';
 import { TOMTOM_KEY } from './config.js';
 import { getCurrentPosition } from './location.js';
@@ -91,8 +91,20 @@ function setupCombo(inputId, key, { onChoose } = {}) {
     if (items[index]) input.setAttribute('aria-activedescendant', items[index].id);
   }
 
+  let hint = null;   // shown in the list when there are no suggestions to show
+
   function render() {
     list.replaceChildren();
+    if (hint && !results.length) {
+      const li = document.createElement('li');
+      li.className = 'combo-hint';
+      li.textContent = hint;
+      list.append(li);
+      list.hidden = false;
+      input.setAttribute('aria-expanded', 'false');
+      active = -1;
+      return;
+    }
     results.forEach((place, i) => {
       const li = document.createElement('li');
       li.id = `${inputId}-opt-${i}`;
@@ -113,26 +125,58 @@ function setupCombo(inputId, key, { onChoose } = {}) {
     state[key] = null;   // typed text no longer matches a chosen place
     clearTimeout(timer);
     const q = input.value.trim();
+    hint = null;
     if (q.length < 3) { results = []; render(); return; }
     timer = setTimeout(async () => {
       controller?.abort();
       controller = new AbortController();
       try {
-        results = await searchPlaces(q, state.here, controller.signal);
+        results = await suggestPlaces(q, state.here, controller.signal);
         render();
       } catch (err) {
-        if (err.name !== 'AbortError') setStatus(err.message, 'error');
+        if (err.name === 'SuggestionsUnavailable') {
+          results = [];
+          hint = err.message;
+          render();
+        } else if (err.name !== 'AbortError') {
+          setStatus(err.message, 'error');
+        }
       }
     }, 300);
   });
 
+  // Without suggestions, Enter searches instead of planning right away.
+  async function searchNow(q) {
+    clearTimeout(timer);
+    controller?.abort();
+    controller = new AbortController();
+    hint = 'Searching…';
+    results = [];
+    render();
+    try {
+      results = await searchPlaces(q, state.here, controller.signal);
+      hint = results.length ? null : `No match for "${q}". Try adding a city or state.`;
+      render();
+      if (results.length) highlight(0);
+    } catch (err) {
+      if (err.name === 'AbortError') return;
+      hint = "Address search isn't available right now.";
+      render();
+    }
+  }
+
   input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && hint && !state[key] && input.value.trim().length >= 3) {
+      e.preventDefault();
+      searchNow(input.value.trim());
+      return;
+    }
     if (list.hidden || !results.length) return;
     const count = results.length;
     if (e.key === 'ArrowDown') { e.preventDefault(); highlight((active + 1) % count); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); highlight((active - 1 + count) % count); }
     else if (e.key === 'Enter' && active >= 0) { e.preventDefault(); choose(results[active]); }
-    else if (e.key === 'Escape') { close(); }
+    else if (e.key === 'Escape') { hint = null; close(); }
   });
 
   input.addEventListener('blur', () => setTimeout(close, 100));

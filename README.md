@@ -37,7 +37,7 @@ Free; all but TomTom work without an API key:
 | Purpose | Service |
 |---|---|
 | Routing | [TomTom Routing API](https://developer.tomtom.com/routing-api/documentation) with traffic (optional, needs a key), then [OSRM](https://project-osrm.org/) (project and [FOSSGIS](https://routing.openstreetmap.de/) servers) and [Valhalla](https://valhalla.github.io/valhalla/) |
-| Address search | [Photon](https://photon.komoot.io/) |
+| Address search | [Photon](https://photon.komoot.io/), then [Nominatim](https://nominatim.org/) when Photon is down (searches you ask for and place names only, one request per second) |
 | Gas stations | [Overpass API](https://wiki.openstreetmap.org/wiki/Overpass_API) (OpenStreetMap), several public servers |
 | Weather | [Open-Meteo](https://open-meteo.com/) |
 | Weather alerts | [National Weather Service API](https://www.weather.gov/documentation/services-web-api) |

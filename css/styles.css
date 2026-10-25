@@ -335,6 +335,8 @@ input[type="text"]:focus { border-color: var(--accent-ink); outline: none; }
 }
 .suggestions li:hover,
 .suggestions li[aria-selected="true"] { background: var(--accent-soft); }
+.suggestions li.combo-hint,
+.suggestions li.combo-hint:hover { color: var(--muted); font-size: 0.95rem; cursor: default; background: none; }
 
 /* ---------- Route ---------- */
 
