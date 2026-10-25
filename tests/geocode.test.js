@@ -21,6 +21,15 @@ globalThis.fetch = async (url) => {
       }),
     };
   }
+  if (url.includes('/reverse') && url.includes('lat=37.75')) {
+    return {
+      ok: true,
+      json: async () => ({
+        lat: '37.75', lon: '-122.41',
+        address: { house_number: '1186;1188;1190', road: 'Treat Avenue', city: 'San Francisco', state: 'California' },
+      }),
+    };
+  }
   if (url.includes('/reverse')) {
     return {
       ok: true,
@@ -56,7 +65,7 @@ test('when Photon is down, suggestions stop and searches use Nominatim', async (
   assert.equal(calls.filter((u) => u.includes('photon')).length, 1);
 
   const [p] = await searchPlaces('sacramento');
-  assert.equal(p.label, 'Sacramento, California');
+  assert.equal(p.label, 'Sacramento, CA');
   assert.equal(p.town, 'Sacramento, CA');
   assert.equal(p.lon, -121.49);
   assert.ok(calls.at(-1).startsWith('https://nominatim.openstreetmap.org/search'));
@@ -70,4 +79,10 @@ test('place names fall back to Nominatim and are cached', async () => {
   const again = await reversePlace(39.3201, -120.1801);   // same spot, ~10 m away
   assert.equal(again.town, 'Truckee, CA');
   assert.equal(calls.length, before);
+});
+
+test('labels show one house number and a short state', async () => {
+  photonDown = true;
+  const place = await reversePlace(37.75, -122.41);
+  assert.equal(place.label, '1186 Treat Avenue, San Francisco, CA');
 });

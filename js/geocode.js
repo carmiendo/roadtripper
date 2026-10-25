@@ -23,10 +23,14 @@ export class SuggestionsUnavailable extends Error {
   }
 }
 
+// OpenStreetMap lists every number on a building ("1186;1188;1190"); show the first.
+const firstNumber = (n) => (n ? String(n).split(/[;,]/)[0].trim() : null);
+
 function labelFor(props) {
-  const street = [props.housenumber, props.street].filter(Boolean).join(' ');
+  const street = [firstNumber(props.housenumber), props.street].filter(Boolean).join(' ');
   const place = props.city || props.town || props.village || props.county;
-  const parts = [props.name !== place ? props.name : null, street || null, place, props.state];
+  const state = US_STATES[props.state] || props.state;
+  const parts = [props.name !== place ? props.name : null, street || null, place, state];
   const seen = new Set();
   return parts
     .filter((p) => p && !seen.has(p) && seen.add(p))
@@ -184,7 +188,7 @@ export async function searchPlaces(query, near, signal) {
 
 // ---------- Place names ----------
 
-const NAME_CACHE_KEY = 'roadtripper.placeNames.v1';
+const NAME_CACHE_KEY = 'roadtripper.placeNames.v2';
 const NAME_CACHE_MAX = 300;
 
 function nameKey(lat, lon) {
