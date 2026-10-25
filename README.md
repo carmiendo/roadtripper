@@ -23,12 +23,12 @@ Routing, gas stations ahead, weather and road conditions along the route, home-s
 8. Works offline: reopens your last trip (route, stations, detours, forecasts) and map areas you viewed
 9. While driving: the map follows you, and a pinned bar shows the next gas station and whether it's the last before a gap
 10. Opening hours at your arrival time (in the station's time zone); closed stations don't count for gap warnings
-11. Amenity badges and filters: restrooms, store, food, truck stop
+11. Truck stop badge and filter
 12. Compare the weather for leaving now vs. 1–4 hours later
 13. California chain controls and closures ahead on the route (Caltrans)
 14. Recent problems log in Settings, with a copy button for bug reports
 
-Traffic-aware drive times from TomTom when the `TOMTOM_KEY` secret is set (otherwise OSRM's normal-traffic times).
+Traffic-aware drive times and gas stations from TomTom when the `TOMTOM_KEY` secret is set (otherwise OSRM's normal-traffic times and OpenStreetMap stations).
 
 ## Data sources
 
@@ -38,7 +38,7 @@ Free; all but TomTom work without an API key:
 |---|---|
 | Routing | [TomTom Routing API](https://developer.tomtom.com/routing-api/documentation) with traffic (optional, needs a key), then [OSRM](https://project-osrm.org/) (project and [FOSSGIS](https://routing.openstreetmap.de/) servers) and [Valhalla](https://valhalla.github.io/valhalla/) |
 | Address search | [Photon](https://photon.komoot.io/), then [Nominatim](https://nominatim.org/) when Photon is down (searches you ask for and place names only, one request per second) |
-| Gas stations | [Overpass API](https://wiki.openstreetmap.org/wiki/Overpass_API) (OpenStreetMap), several public servers |
+| Gas stations | [TomTom Search API](https://developer.tomtom.com/search-api/documentation) along-route search (needs the key; not stored, per TomTom's terms), then the [Overpass API](https://wiki.openstreetmap.org/wiki/Overpass_API) (OpenStreetMap, several public servers), which saved trips and offline use rely on |
 | Weather | [Open-Meteo](https://open-meteo.com/) |
 | Weather alerts | [National Weather Service API](https://www.weather.gov/documentation/services-web-api) |
 | Chain controls | [Caltrans CWWP2](https://cwwp2.dot.ca.gov/) |

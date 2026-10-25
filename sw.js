@@ -37,6 +37,7 @@ const SHELL = [
   'js/stations.js',
   'js/trip-store.js',
   'js/weather-panel.js',
+  'js/tomtom-places.js',
   'js/weather.js',
   'icons/favicon.svg',
   'icons/favicon-32-v2.png',

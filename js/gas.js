@@ -2,6 +2,8 @@
 // Copyright (C) 2026 Carmen Jackson. Licensed under the GNU GPL v3.0 (see LICENSE).
 
 import { createStationLoader, findGaps, pickAroundTarget, nextStation } from './stations.js';
+import { createTomTomStationLoader } from './tomtom-places.js';
+import { TOMTOM_KEY } from './config.js';
 import { parseHours, hoursStatus } from './hours.js';
 import { getDetourLengths } from './routing.js';
 import { pointAlong, timeAlong, sliceAlong } from './geo.js';
@@ -45,10 +47,11 @@ export function createGasPanel({ settings, getMap, onChange, utcOffsetAt = () =>
 
   let loader = null;
 
-  // ---------- Amenity filter ----------
+  // ---------- Truck stop filter ----------
   // Only for this session: what you need changes from stop to stop.
 
-  const AMENITY_LABEL = { restrooms: 'Restrooms', store: 'Store', food: 'Food', truckStop: 'Truck stop' };
+  const AMENITY_LABEL = { truckStop: 'Truck stop' };
+  let source = 'tomtom';   // 'tomtom' | 'osm': where the current stations came from
   const wanted = new Set();
   el.amenityButtons.forEach((b) => b.addEventListener('click', () => {
     const key = b.dataset.amenity;
@@ -157,6 +160,7 @@ export function createGasPanel({ settings, getMap, onChange, utcOffsetAt = () =>
 
   /** Open or closed when you'd get there: {open, changesAt} or null if hours are unknown. */
   function openAtArrival(station) {
+    if (station.hoursParsed) return hoursStatus(station.hoursParsed, arrivalAt(station.along), offsetFor(station));
     if (!station.hours) return null;
     if (!parsedHours.has(station.id)) parsedHours.set(station.id, parseHours(station.hours));
     return hoursStatus(parsedHours.get(station.id), arrivalAt(station.along), offsetFor(station));
@@ -469,10 +473,9 @@ export function createGasPanel({ settings, getMap, onChange, utcOffsetAt = () =>
     // Stations in the window
     const target = settings.gasTarget;
     const listable = wanted.size ? near.filter(hasWanted) : near;
-    el.amenityNote.hidden = !wanted.size;
+    el.amenityNote.hidden = !wanted.size || source !== 'osm';
     if (wanted.size) {
-      const names = [...wanted].map((k) => AMENITY_LABEL[k].toLowerCase()).join(' and ');
-      el.amenityNote.textContent = `Showing stations tagged with ${names}. Many stations aren't tagged, so some may be missing.`;
+      el.amenityNote.textContent = "Showing stations tagged as truck stops. Many aren't tagged, so some may be missing.";
     }
     const { before, after } = pickAroundTarget(listable, { from, target, range: [rStart, rEnd], perSide: PER_SIDE });
     const shown = [...before, ...after];
@@ -485,10 +488,11 @@ export function createGasPanel({ settings, getMap, onChange, utcOffsetAt = () =>
       return li;
     };
     const reach = (d) => formatDistance(Math.min(d, SEARCH_SPAN_M), unit);
+    const noun = wanted.size ? 'truck stops' : 'stations';
     if (!before.length && after.length && state.load.complete) {
       items.push(sideNote(rStart <= from + 1
-        ? `No stations between here and ${formatDistance(target, unit)}.`
-        : `No stations within ${reach(target)} before your target.`));
+        ? `No ${noun} between here and ${formatDistance(target, unit)}.`
+        : `No ${noun} within ${reach(target)} before your target.`));
     }
     before.forEach((s, i) => items.push(stationItem(s, i, s.along - from, gapAfterStation.get(s.id), target)));
     if (state.trip && (before.length || after.length)) items.push(targetDivider(target, from));
@@ -497,8 +501,8 @@ export function createGasPanel({ settings, getMap, onChange, utcOffsetAt = () =>
     if (before.length && !after.length && state.load.complete) {
       const routeEnd = route.cumDist[route.cumDist.length - 1];
       items.push(sideNote(rEnd >= routeEnd - 1
-        ? `No stations past ${formatDistance(target, unit)} on this route.`
-        : `No stations within ${reach(SEARCH_SPAN_M)} past your target.`));
+        ? `No ${noun} past ${formatDistance(target, unit)} on this route.`
+        : `No ${noun} within ${reach(SEARCH_SPAN_M)} past your target.`));
     }
     el.list.replaceChildren(...items);
     shown.forEach(queueDetour);
@@ -506,7 +510,7 @@ export function createGasPanel({ settings, getMap, onChange, utcOffsetAt = () =>
     if (shown.length) {
       el.empty.hidden = true;
     } else {
-      el.empty.textContent = `No gas stations from ${formatMarker(rStart, unit)} to ${formatMarker(rEnd, unit)}.`;
+      el.empty.textContent = `No ${wanted.size ? 'truck stops' : 'gas stations'} from ${formatMarker(rStart, unit)} to ${formatMarker(rEnd, unit)}.`;
       el.empty.hidden = false;
     }
 
@@ -544,12 +548,32 @@ export function createGasPanel({ settings, getMap, onChange, utcOffsetAt = () =>
     state.detours = new Map(savedDetours ?? []);
     detourQueue = [];
     loader?.cancel();
-    loader = createStationLoader(trip.route, MAX_STATION_RADIUS, (update) => {
+    const onUpdate = (update) => {
       if (generation !== state.generation) return;
+      // TomTom measures detours itself.
+      for (const st of update.stations) {
+        if (st.detour && typeof state.detours.get(st.id) !== 'object') state.detours.set(st.id, st.detour);
+      }
       state.stations = update.stations;
       state.load = update;
       render();
-    });
+    };
+    // OpenStreetMap stations, from Overpass: the backup, and what saved trips use offline.
+    const useOsm = () => {
+      if (generation !== state.generation) return;
+      loader?.cancel();
+      source = 'osm';
+      loader = createStationLoader(trip.route, MAX_STATION_RADIUS, onUpdate);
+      updateRange();
+      render();
+    };
+    if (TOMTOM_KEY) {
+      source = 'tomtom';
+      loader = createTomTomStationLoader(trip.route, MAX_STATION_RADIUS, onUpdate, { onUnavailable: useOsm });
+    } else {
+      source = 'osm';
+      loader = createStationLoader(trip.route, MAX_STATION_RADIUS, onUpdate);
+    }
     render();
     updateRange();
   }
@@ -579,9 +603,10 @@ export function createGasPanel({ settings, getMap, onChange, utcOffsetAt = () =>
     render();
   }
 
-  // Detour times worth saving (finished measurements only).
+  // Detour times worth saving (finished measurements only). TomTom's aren't
+  // saved: its terms don't allow storing results.
   function snapshot() {
-    return new Map([...state.detours].filter(([, d]) => typeof d === 'object'));
+    return new Map([...state.detours].filter(([id, d]) => typeof d === 'object' && !id.startsWith('tt/')));
   }
 
   return { setTrip, setProgress, refreshSettings, retryFailed, snapshot };

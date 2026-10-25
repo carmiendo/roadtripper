@@ -40,6 +40,7 @@
   <link rel="modulepreload" href="js/trip-store.js">
   <link rel="modulepreload" href="js/gas.js">
   <link rel="modulepreload" href="js/weather.js">
+  <link rel="modulepreload" href="js/tomtom-places.js">
   <link rel="modulepreload" href="js/weather-panel.js">
   <!-- Open connections early to the services the first actions use. -->
   <link rel="preconnect" href="https://photon.komoot.io" crossorigin>
@@ -149,10 +150,7 @@
       </div>
       <p class="gas-context" id="gas-context"></p>
       <ul class="gaps" id="gas-gaps" aria-label="Stretches with no gas"></ul>
-      <div class="amenity-filter" role="group" aria-label="Only show stations with">
-        <button type="button" class="chip-button" data-amenity="restrooms" aria-pressed="false">Restrooms</button>
-        <button type="button" class="chip-button" data-amenity="store" aria-pressed="false">Store</button>
-        <button type="button" class="chip-button" data-amenity="food" aria-pressed="false">Food</button>
+      <div class="amenity-filter" role="group" aria-label="Filter stations">
         <button type="button" class="chip-button" data-amenity="truckStop" aria-pressed="false">Truck stop</button>
       </div>
       <p class="amenity-note" id="amenity-note" hidden></p>
@@ -237,7 +235,7 @@
         Weather by <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo.com</a> (CC BY 4.0)
         and the <a href="https://www.weather.gov/" target="_blank" rel="noopener">National Weather Service</a>.
         Chain controls from <a href="https://cwwp2.dot.ca.gov/" target="_blank" rel="noopener">Caltrans</a>.
-        <span id="credit-tomtom" hidden>Traffic from <a href="https://www.tomtom.com/" target="_blank" rel="noopener">TomTom</a>.</span>
+        <span id="credit-tomtom" hidden>Traffic and gas stations from <a href="https://www.tomtom.com/" target="_blank" rel="noopener">TomTom</a>.</span>
         App icon from <a href="https://github.com/jdecked/twemoji" target="_blank" rel="noopener">Twemoji</a>
         (<a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>).
       </p>

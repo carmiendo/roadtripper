@@ -736,6 +736,8 @@ function init() {
   const restored = restoreTrip();
   setupOffline();
   $('credit-tomtom').hidden = !TOMTOM_KEY;
+  // TomTom's copyright line, required wherever its data is shown.
+  tomtomCopyright().then((caption) => { if (caption) $('credit-tomtom').append(` ${caption}`); });
   document.documentElement.dataset.ready = '1';
 
   // With the start screen up and nothing else going on, fetch the map library

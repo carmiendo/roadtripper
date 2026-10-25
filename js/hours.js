@@ -107,3 +107,27 @@ export function hoursStatus(hours, date, offsetSec) {
   const next = merged.find(([a]) => a > minute);
   return { open: false, changesAt: next ? at(next[0]) : null };
 }
+
+/**
+ * TomTom's opening hours for the next 7 days, in the same form as parseHours.
+ * @param {Array<{startTime:{date:string, hour:number, minute:number}, endTime:object}>} ranges
+ *   local wall-clock times at the place, e.g. {date: '2026-10-24', hour: 6, minute: 0}
+ */
+export function tomtomHours(ranges) {
+  if (!Array.isArray(ranges) || !ranges.length) return null;
+  const wall = (t) => {
+    const [y, m, d] = String(t?.date || '').split('-').map(Number);
+    return Date.UTC(y, m - 1, d, t.hour || 0, t.minute || 0);
+  };
+  const days = Array.from({ length: 7 }, () => []);
+  for (const r of ranges) {
+    const start = wall(r.startTime);
+    const end = wall(r.endTime);
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return null;
+    if (end - start >= 7 * 24 * 3600 * 1000 - 60000) return { always: true };
+    const day = new Date(start).getUTCDay();
+    const minute = new Date(start).getUTCHours() * 60 + new Date(start).getUTCMinutes();
+    days[day].push([minute, minute + (end - start) / 60000]);
+  }
+  return { days };
+}

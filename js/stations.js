@@ -110,7 +110,7 @@ function segmentsQuery(route, segs, radius) {
 }
 
 // Travel-center chains: big stops with restrooms, food, and truck parking.
-const TRUCK_STOP_BRANDS = /^(love'?s|pilot|flying j|ta|travelcenters of america|petro|buc-ee'?s|sapp bros|kwik trip)\b/i;
+export const TRUCK_STOP_BRANDS = /^(love'?s|pilot|flying j|ta|travelcenters of america|petro|buc-ee'?s|sapp bros|kwik trip)\b/i;
 
 /** Amenities from OSM tags. Untagged means unknown, so these only ever say "yes". */
 export function amenitiesFrom(t = {}) {
