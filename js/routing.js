@@ -233,8 +233,17 @@ export async function getTripLength(points) {
  */
 export async function getRoute(from, to, departAt, { noTraffic = false } = {}) {
   const providers = chain(osrmRoute, valhallaRoute);
-  if (TOMTOM_KEY && !noTraffic) providers.unshift((f, t) => tomtomRoute(f, t, departAt));
-  return tryProviders(providers, [from, to], 'get a route');
+  let trafficFailed = false;
+  if (TOMTOM_KEY && !noTraffic) {
+    providers.unshift((f, t) => tomtomRoute(f, t, departAt).catch((err) => {
+      trafficFailed = true;
+      throw err;
+    }));
+  }
+  const route = await tryProviders(providers, [from, to], 'get a route');
+  // TomTom was tried and a backup provider answered instead.
+  if (trafficFailed && route.provider !== 'TomTom') route.trafficUnavailable = true;
+  return route;
 }
 
 let captionPromise = null;

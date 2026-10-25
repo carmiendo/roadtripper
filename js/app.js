@@ -230,6 +230,9 @@ function renderSummary() {
 }
 
 function providerNote(route) {
+  if (route.trafficUnavailable) {
+    return `Traffic data isn't available right now. Route from ${route.provider}; drive times assume normal traffic.`;
+  }
   if (route.provider !== 'TomTom') return `Route from ${route.provider}. Drive times assume normal traffic.`;
   const total = formatDuration(route.duration, { compact: true });
   const delay = Math.round((route.trafficDelay || 0) / 60);
