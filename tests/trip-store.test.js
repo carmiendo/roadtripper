@@ -46,11 +46,6 @@ test('an old, finished trip is not reopened', () => {
   assert.equal(loadTrip(), null);
 });
 
-test('the sections you opened are saved with the trip', () => {
-  saveTrip(trip(), { open: ['gas', 'weather'] });
-  assert.deepEqual(loadTrip().open, ['gas', 'weather']);
-});
-
 test('clearTrip removes it', () => {
   saveTrip(trip());
   clearTrip();

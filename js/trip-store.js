@@ -41,9 +41,9 @@ function packWeather(snapshot, arriveAt) {
 /**
  * Save the trip and what's been loaded for it.
  * @param {{route, from, to, departAt, fromHere}} trip
- * @param {{weather?, detours?, open?: string[]}} extras  open: sections you'd opened (gas, restrooms, weather)
+ * @param {{weather?, detours?}} extras
  */
-export function saveTrip(trip, { weather, detours, open = [] } = {}) {
+export function saveTrip(trip, { weather, detours } = {}) {
   // TomTom's terms don't allow storing its routes, so save the backup route
   // from a free provider instead, or nothing if there isn't one yet.
   const route = trip.route.provider === 'TomTom' ? trip.storableRoute : trip.route;
@@ -58,7 +58,6 @@ export function saveTrip(trip, { weather, detours, open = [] } = {}) {
     route: packRoute(route),
     weather: packWeather(weather, arriveAt),
     detours: detours ? Object.fromEntries(detours) : {},
-    open: [...open],
   };
   try {
     localStorage.setItem(KEY, JSON.stringify(data));
@@ -106,7 +105,6 @@ export function loadTrip() {
     },
     weather: data.weather,
     detours: new Map(Object.entries(data.detours || {})),
-    open: Array.isArray(data.open) ? data.open : [],
   };
 }
 

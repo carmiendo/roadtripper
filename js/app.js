@@ -44,6 +44,7 @@ const state = {
   savedAt: null,  // when the shown trip was saved, if it was reopened from storage
   open: new Set(),     // sections shown: 'gas', 'restrooms', 'weather'
   started: new Set(),  // sections that have started searching for this trip
+  saved: null,         // forecast and detours from a reopened trip, used when its sections open
 };
 
 let map = null;
@@ -460,18 +461,21 @@ function renderSections() {
   }
 }
 
-function startSection(name, saved = null) {
+function startSection(name) {
   if (state.started.has(name) || !state.trip) return;
   state.started.add(name);
-  SECTIONS[name].start(saved);
+  SECTIONS[name].start(state.saved);
 }
 
-/** For a new (or reopened) trip: close everything, then open `open`. */
-function resetSections(open = [], saved = null) {
-  state.open = new Set(open.filter((n) => n in SECTIONS));
+/**
+ * For a new or reopened trip: everything closed, so nothing is searched until
+ * you ask. A reopened trip's saved forecast and detours are used when you do.
+ */
+function resetSections(saved = null) {
+  state.open = new Set();
   state.started = new Set();
+  state.saved = saved;
   for (const s of Object.values(SECTIONS)) s.clear();
-  for (const name of state.open) startSection(name, saved);
   renderSections();
 }
 
@@ -503,7 +507,10 @@ function persistTrip() {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
     if (!state.trip) return;
-    saveTrip(state.trip, { weather: weather.snapshot(), detours: gas.snapshot(), open: [...state.open] });
+    saveTrip(state.trip, {
+      weather: weather.snapshot() ?? state.saved?.weather,
+      detours: state.started.has('gas') ? gas.snapshot() : state.saved?.detours,
+    });
   }, 800);
 }
 
@@ -516,7 +523,7 @@ function restoreTrip() {
   state.savedAt = saved.savedAt;
   state.progress = null;
   renderRoute(state.trip);
-  resetSections(saved.open, saved);
+  resetSections(saved);
   roads.setTrip(state.trip);
   if (saved.trip.fromHere) startTracking(null);   // follows you only if location is already allowed
   return true;
