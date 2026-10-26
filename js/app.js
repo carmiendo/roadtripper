@@ -17,6 +17,7 @@
 
 import './dev.js';   // first: on the dev site, separates saved data and answers TomTom requests
 import { setupDevPanel } from './dev-panel.js';
+import { startStats, countEvent, toggleCountingFromLink } from './stats.js';
 import { suggestPlaces, searchPlaces, reversePlace } from './geocode.js';
 import { getRoute, tomtomCopyright } from './routing.js';
 import { TOMTOM_KEY } from './config.js';
@@ -371,6 +372,7 @@ async function plan(event) {
     renderRoute(state.trip);
     setStatus('');
     resetSections();
+    countEvent('plan-trip');
     persistTrip();
     roads.setProgress(null);
     roads.setTrip(state.trip);
@@ -487,6 +489,7 @@ function toggleSection(name) {
   if (opening) {
     state.open.add(name);
     startSection(name);
+    countEvent(`open-${name}`);
   } else {
     state.open.delete(name);
   }
@@ -590,6 +593,10 @@ function updateProgress(pos) {
   const snap = projectToRoute(route, [pos.lon, pos.lat]);
   const onRoute = snap.offRoute <= ON_ROUTE_M;
   const progress = onRoute ? { along: snap.along, live: true } : null;
+  if (progress && !state.countedDriving) {
+    state.countedDriving = true;   // once per page load
+    countEvent('driving');
+  }
   state.progress = progress;
   renderSummary();
   gas.setProgress(progress);
@@ -805,6 +812,14 @@ function init() {
   });
   setupSettings();
   setupDevPanel();
+  // Private link for your own devices: roadtripper.quest/#toggle-goatcounter
+  const applyCountingLink = () => {
+    const counting = toggleCountingFromLink();
+    if (counting != null) setStatus(counting ? 'Visits from this device are counted again.' : "Visits from this device won't be counted.");
+  };
+  applyCountingLink();
+  window.addEventListener('hashchange', applyCountingLink);
+  startStats();
   setupSections();
   roads = createRoadsPanel({ settings, getMap: () => map });
   const restored = restoreTrip();

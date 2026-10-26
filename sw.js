@@ -37,6 +37,7 @@ const SHELL = [
   'js/roads-panel.js',
   'js/routing.js',
   'js/settings.js',
+  'js/stats.js',
   'js/stations.js',
   'js/trip-store.js',
   'js/weather-panel.js',
