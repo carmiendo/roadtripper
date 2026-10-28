@@ -1,4 +1,4 @@
-// "Road conditions" panel: California chain controls ahead on the route.
+// "Road conditions" panel: California chain controls and Nevada road conditions ahead on the route.
 // Copyright (C) 2026 Carmen Jackson. Licensed under the GNU GPL v3.0 (see LICENSE).
 
 import { loadRoadAlerts, alertsOnRoute, LEVEL_ORDER } from './roads.js';
@@ -48,7 +48,10 @@ export function createRoadsPanel({ settings, getMap }) {
     const where = document.createElement('p');
     where.className = 'road-where';
     const road = [a.route, a.direction ? a.direction.toLowerCase() + 'bound' : ''].filter(Boolean).join(' ');
-    const near = a.places.length ? `near ${a.places.slice(0, 2).join(' and ')}` : '';
+    // Caltrans names a nearby place; Nevada 511 describes the stretch ("from X to Y").
+    const near = !a.places.length ? ''
+      : a.source === 'Nevada 511' ? a.places[0]
+        : `near ${a.places.slice(0, 2).join(' and ')}`;
     const ahead = Math.max(0, a.along - from);
     const span = a.endAlong - a.along > 1600 ? ` for ${formatDistance(a.endAlong - a.along, unit)}` : '';
     where.textContent = [
@@ -60,10 +63,12 @@ export function createRoadsPanel({ settings, getMap }) {
     if (a.since) {
       const since = document.createElement('p');
       since.className = 'road-since';
-      since.textContent = `In effect since ${formatDayClock(a.since)}`;
+      since.textContent = a.source === 'Nevada 511'
+        ? `Updated ${formatDayClock(a.since)}`
+        : `In effect since ${formatDayClock(a.since)}`;
       main.append(since);
     }
-    li.title = a.detail;   // Caltrans's full wording, on hover
+    li.title = a.detail;   // the agency's full wording, on hover
     li.append(badge, main);
     return li;
   }
@@ -84,7 +89,9 @@ export function createRoadsPanel({ settings, getMap }) {
       const worst = ahead.reduce((w, a) => (LEVEL_ORDER[a.level] < LEVEL_ORDER[w.level] ? a : w));
       el.summary.textContent = worst.level === 'closed'
         ? 'Road closed ahead on your route.'
-        : `${ahead.length} chain control ${ahead.length === 1 ? 'area' : 'areas'} ahead on your route.`;
+        : ['held', 'chains'].includes(worst.level)
+          ? `${ahead.length} chain control ${ahead.length === 1 ? 'area' : 'areas'} ahead on your route.`
+          : `${ahead.length} road ${ahead.length === 1 ? 'condition' : 'conditions'} to watch for ahead on your route.`;
       el.summary.className = `roads-summary roads-summary--${worst.level}`;
     } else {
       el.summary.textContent = r.failed ? '' : 'No chain controls or closures on your route right now.';
@@ -93,9 +100,9 @@ export function createRoadsPanel({ settings, getMap }) {
     el.list.replaceChildren(...ahead.map((a) => item(a, from)));
 
     const notes = [];
-    if (r.failed) notes.push("Couldn't reach Caltrans for part of your route.");
+    if (r.failed) notes.push("Couldn't get road conditions for part of your route.");
     if (r.stale) notes.push(`Showing saved conditions from ${checked}.`);
-    else if (checked) notes.push(`California only. Checked ${checked}; conditions change quickly in storms.`);
+    else if (checked) notes.push(`California and Nevada only. Checked ${checked}; conditions change quickly in storms.`);
     el.status.textContent = notes.join(' ');
 
     getMap()?.showRoadAlerts?.(ahead.map((a) => ({ coord: [a.lon, a.lat], short: a.short, level: a.level })));

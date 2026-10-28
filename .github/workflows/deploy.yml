@@ -2,7 +2,13 @@
 #   roadtripper.quest       the main branch, with the TomTom key
 #   roadtripper.quest/dev/  the dev branch (or main, if there's no dev branch),
 #                           without any key: its TomTom requests get made-up answers
-# Runs on every push to main or dev, so both copies are always current.
+# Runs on every push to main or dev, so both copies are always current, and
+# every 15 minutes to refresh Nevada road conditions (data/nevada.json).
+#
+# Nevada 511 allows 10 requests a minute for the whole key, so phones can't
+# call it. Each run calls it once with the NVROADS_KEY secret and publishes
+# only the roads with something to report, as part of the site (both copies).
+# Nothing is committed to the repo.
 #
 # The TomTom key lives in the repository secret TOMTOM_KEY and is written into
 # js/config.js only in the published main copy, so it never appears in the repo.
@@ -12,6 +18,8 @@ name: Deploy
 on:
   push:
     branches: [main, dev]
+  schedule:
+    - cron: '7,22,37,52 * * * *'
   workflow_dispatch:
 
 permissions:
@@ -90,6 +98,24 @@ jobs:
           fi
         env:
           TOMTOM_KEY: ${{ secrets.TOMTOM_KEY }}
+      - name: Add Nevada road conditions
+        env:
+          NVROADS_KEY: ${{ secrets.NVROADS_KEY }}
+        run: |
+          if [ -z "$NVROADS_KEY" ]; then echo "No NVROADS_KEY secret; skipping Nevada."; exit 0; fi
+          mkdir -p _site/data _site/dev/data
+          script=main-src/scripts/nevada.mjs
+          [ -f "$script" ] || script=dev-src/scripts/nevada.mjs
+          if curl -fsS --retry 2 --retry-delay 10 --max-time 60 \
+              "https://www.nvroads.com/api/v3/get/roadconditions?key=$NVROADS_KEY&format=json" -o raw.json \
+             && node "$script" raw.json > nevada.json; then
+            if grep -q "$NVROADS_KEY" nevada.json; then echo "Key found in output." >&2; exit 1; fi
+            cp nevada.json _site/data/nevada.json
+            cp nevada.json _site/dev/data/nevada.json
+          else
+            # Keep the site up; the app says it couldn't get Nevada's conditions.
+            echo "::warning::Couldn't fetch Nevada 511 road conditions."
+          fi
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site

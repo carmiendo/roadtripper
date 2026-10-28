@@ -9,7 +9,7 @@ Live at [roadtripper.quest](https://roadtripper.quest).
 
 ## Status
 
-Routing, gas stations ahead, weather and road conditions along the route, home-screen install, and offline use are working. Next: Nevada road conditions.
+Routing, gas stations ahead, weather and road conditions along the route, home-screen install, and offline use are working. 
 
 ## Features
 
@@ -25,7 +25,7 @@ Routing, gas stations ahead, weather and road conditions along the route, home-s
 10. Opening hours at your arrival time (in the station's time zone); closed stations don't count for gap warnings
 11. Truck stop badge and filter
 12. Compare the weather for leaving now vs. 1–4 hours later
-13. California chain controls and closures ahead on the route (Caltrans)
+13. California chain controls and closures (Caltrans) and Nevada road conditions (Nevada 511) ahead on the route
 14. Recent problems log in Settings, with a copy button for bug reports
 15. Restrooms ahead: the next rest stops and truck stops on the route, with a filter for each (TomTom)
 16. Gas, Restrooms, and Weather buttons under the map: each search starts only when you tap it
@@ -43,7 +43,7 @@ Free; all but TomTom work without an API key:
 | Gas stations | [TomTom Search API](https://developer.tomtom.com/search-api/documentation) along-route search (needs the key; not stored, per TomTom's terms), then the [Overpass API](https://wiki.openstreetmap.org/wiki/Overpass_API) (OpenStreetMap, several public servers), which saved trips and offline use rely on |
 | Weather | [Open-Meteo](https://open-meteo.com/) |
 | Weather alerts | [National Weather Service API](https://www.weather.gov/documentation/services-web-api) |
-| Chain controls | [Caltrans CWWP2](https://cwwp2.dot.ca.gov/) |
+| Road conditions | [Caltrans CWWP2](https://cwwp2.dot.ca.gov/) chain controls; [Nevada 511](https://www.nvroads.com/developers/doc) road conditions, fetched every 15 minutes by the Deploy workflow with the `NVROADS_KEY` secret and published with the site as `data/nevada.json` (not committed to the repo) |
 | Map | [MapLibre GL JS](https://maplibre.org/) with [OpenFreeMap](https://openfreemap.org/) tiles |
 
 Map and station data © OpenStreetMap contributors, available under the [Open Database License](https://www.openstreetmap.org/copyright). Weather data by Open-Meteo.com, under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). App icon based on the 🚙 emoji from [Twemoji](https://github.com/jdecked/twemoji), under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).

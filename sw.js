@@ -81,7 +81,9 @@ self.addEventListener('fetch', (event) => {
   const base = new URL('./', self.location).pathname;
   if (url.origin === self.location.origin && url.pathname.startsWith(`${base}dev/`)) return;
 
-  if (url.origin === self.location.origin) {
+  if (url.origin === self.location.origin && url.pathname.startsWith(`${base}data/`)) {
+    event.respondWith(networkFirst(req, SHELL_CACHE));   // live data: newest when online
+  } else if (url.origin === self.location.origin) {
     event.respondWith(staleWhileRevalidate(event, SHELL_CACHE, req.mode === 'navigate'));
   } else if (url.hostname === 'unpkg.com') {
     event.respondWith(cacheFirst(req, LIB_CACHE));   // pinned versions never change
@@ -118,6 +120,17 @@ async function staleWhileRevalidate(event, cacheName, isNavigation = false) {
       if (fallback) return fallback;
     }
     return Response.error();
+  }
+}
+
+async function networkFirst(req, cacheName) {
+  const cache = await caches.open(cacheName);
+  try {
+    const res = await fetch(req, { cache: 'no-cache' });
+    if (res.ok) cache.put(req, res.clone());
+    return res;
+  } catch {
+    return (await cache.match(req, { ignoreSearch: true })) || Response.error();
   }
 }
 

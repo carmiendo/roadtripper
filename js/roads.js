@@ -1,11 +1,11 @@
-// Road conditions along the route: California chain controls from Caltrans.
+// Road conditions along the route: California chain controls from Caltrans,
+// and Nevada road conditions from Nevada 511.
 // Copyright (C) 2026 Carmen Jackson. Licensed under the GNU GPL v3.0 (see LICENSE).
 //
-// Each source turns its own data into the same RoadAlert shape, so other
-// states (Nevada is next) can be added as another source.
+// Each source turns its own data into the same RoadAlert shape.
 //
 // RoadAlert:
-//   id, source ('Caltrans'), lat, lon
+//   id, source ('Caltrans' | 'Nevada 511'), lat, lon
 //   code      status code, e.g. 'R-2'
 //   level     how serious for a passenger car: 'closed' | 'held' | 'chains' | 'caution'
 //   short     badge text, e.g. 'R2', 'Closed'
@@ -16,6 +16,7 @@
 //   since     when the status last changed (Date) or null
 
 import { recordProblem } from './problems.js';
+import { decodePolyline, haversine } from './geo.js';
 
 const CALTRANS = 'https://cwwp2.dot.ca.gov/data';
 const TIMEOUT_MS = 15000;
@@ -52,6 +53,89 @@ const CODES = {
   'W': { level: 'caution', short: 'Snow', title: 'No restrictions; watch for snow on the road' },
 };
 export const LEVEL_ORDER = { closed: 0, held: 1, chains: 2, caution: 3 };
+
+// ---------- Nevada ----------
+// Nevada 511 allows 10 requests a minute for the whole key, so the deploy
+// workflow fetches its road conditions every 15 minutes with the key kept
+// secret, and publishes just the ones that aren't "No Report" with the site,
+// as data/nevada.json. The app reads that file.
+
+const NEVADA_URL = 'data/nevada.json';
+const NEVADA_BOX = [35.0, -120.1, 42.1, -114.0];   // [south, west, north, east], generous
+const NEVADA_SAMPLE_M = 800;   // a point every 800 m along each condition's road
+
+/** How Nevada 511's wording maps to the app's levels, most serious first. */
+export function nevadaLevel(status) {
+  const s = String(status || '');
+  if (/closed/i.test(s)) return { level: 'closed', short: 'Closed' };
+  if (/holding traffic|traffic (is )?held|escort/i.test(s)) return { level: 'held', short: 'Held' };
+  if (/chain|traction|snow tires/i.test(s)) {
+    return { level: 'chains', short: 'Chains' };
+  }
+  if (/over 9 feet prohibited/i.test(s)) return { level: 'caution', short: 'Wind' };
+  if (/wind/i.test(s)) return { level: 'caution', short: 'Wind' };
+  if (/snow|ice|icy|slush|blowing|visibility|fog|adverse|caution|flood|rock/i.test(s)) return { level: 'caution', short: 'Caution' };
+  return null;   // "No Report", dry, normal
+}
+
+/** Nevada 511 road conditions to RoadAlerts: one per point along each affected road. */
+export function parseNevada(json) {
+  const out = [];
+  for (const c of json?.conditions || []) {
+    const status = String(c['Overall Status'] || '').trim();
+    const secondary = [].concat(c['Secondary Conditions'] || []).filter(Boolean);
+    const primary = nevadaLevel(status);
+    const text = primary ? status : secondary.find(nevadaLevel);
+    if (!text) continue;
+    const info = primary || nevadaLevel(text);
+    const lines = [].concat(c.EncodedPolyline || []).filter(Boolean).map((p) => decodePolyline(p, 5));
+    let span = 0;
+    let k = 0;
+    const base = {
+      source: 'Nevada 511',
+      code: `NV:${status}`,
+      ...info,
+      title: text,
+      detail: [status, ...secondary].filter((x, i, a) => x && a.indexOf(x) === i).join('. '),
+      route: String(c.RoadwayName || '').trim(),
+      direction: '',
+      place: String(c.LocationDescription || '').trim().replace(/^From /, 'from '),
+      since: Number.isFinite(c.LastUpdated) ? new Date(c.LastUpdated * 1000) : null,
+    };
+    const points = [];
+    for (const line of lines) {
+      let sinceLast = Infinity;
+      for (let i = 0; i < line.length; i++) {
+        if (i) { const d = haversine(line[i - 1], line[i]); span += d; sinceLast += d; }
+        if (sinceLast >= NEVADA_SAMPLE_M || i === line.length - 1) {
+          points.push(line[i]);
+          sinceLast = 0;
+        }
+      }
+    }
+    for (const [lon, lat] of points) out.push({ ...base, id: `nv/${c.Id}/${k++}`, lat, lon, span });
+  }
+  return out;
+}
+
+const inNevada = ([lon, lat]) =>
+  lat >= NEVADA_BOX[0] && lat <= NEVADA_BOX[2] && lon >= NEVADA_BOX[1] && lon <= NEVADA_BOX[3];
+
+async function fetchNevada() {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+  try {
+    const res = await fetch(NEVADA_URL, { signal: ctrl.signal, cache: 'no-cache' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const json = await res.json();
+    return { alerts: parseNevada(json), fetchedAt: json.fetchedAt ? Date.parse(json.fetchedAt) : Date.now() };
+  } catch (err) {
+    recordProblem('Nevada road conditions', NEVADA_URL, err);
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 /** Districts whose box any of the points fall in. */
 export function districtsFor(points) {
@@ -135,7 +219,8 @@ async function fetchDistrict(d) {
  */
 export async function loadRoadAlerts(points, { force = false } = {}) {
   const districts = districtsFor(points);
-  if (!districts.length) return { alerts: [], checkedAt: null, covered: false, failed: false, stale: false };
+  const nevada = points.some(inNevada);
+  if (!districts.length && !nevada) return { alerts: [], checkedAt: null, covered: false, failed: false, stale: false };
   const cache = readCache();
   const now = Date.now();
   let failed = false;
@@ -163,6 +248,28 @@ export async function loadRoadAlerts(points, { force = false } = {}) {
       }
     }
   }));
+  if (nevada) {
+    const hit = cache.NV;
+    if (!force && hit && now - hit.at < FRESH_MS) {
+      alerts.push(...hit.alerts.map(revive));
+      oldest = Math.min(oldest, hit.dataAt ?? hit.at);
+    } else {
+      try {
+        const { alerts: list, fetchedAt } = await fetchNevada();
+        cache.NV = { at: Date.now(), dataAt: fetchedAt, alerts: list };
+        alerts.push(...list);
+        oldest = Math.min(oldest, fetchedAt);
+      } catch {
+        if (hit && now - hit.at < STALE_OK_MS) {
+          alerts.push(...hit.alerts.map(revive));
+          oldest = Math.min(oldest, hit.dataAt ?? hit.at);
+          stale = true;
+        } else {
+          failed = true;
+        }
+      }
+    }
+  }
   writeCache(cache);
   return { alerts, checkedAt: new Date(oldest), covered: true, failed, stale };
 }
@@ -206,13 +313,17 @@ export function alertsOnRoute(alerts, route, index, maxOff = 400) {
 
   const merged = [];
   for (const h of hits) {
-    const last = merged[merged.length - 1];
-    if (last && last.code === h.code && last.route === h.route && h.along - last.endAlong < 16000) {
+    // The latest stretch with the same status on the same road, even if another
+    // road's alert came in between.
+    const last = merged.findLast((m) => m.code === h.code && m.route === h.route);
+    if (last && h.along - last.endAlong < 16000) {
       last.endAlong = h.along;
       if (!last.places.includes(h.place) && h.place) last.places.push(h.place);
     } else {
       merged.push({ ...h, endAlong: h.along, places: h.place ? [h.place] : [] });
     }
   }
-  return merged;
+  // A Nevada road that only crosses the route (a closed side road, say) touches
+  // it at a point or two; keep only ones that run along it for a while.
+  return merged.filter((m) => m.source !== 'Nevada 511' || m.endAlong - m.along >= Math.min(1000, (m.span || 0) * 0.5));
 }
